@@ -24,19 +24,7 @@ local supportedGames: {[number]: {name: string, module: string}} = {
     [14890802310] = {
         name   = "Bizarre Lineage",
         module = "games/bizarre_lineage.lua"
-    },
-
-    -- ── Exemple de jeu supplémentaire (commenté) ──────────────
-    -- [0000000002] = {
-    --     name   = "Blox Fruits",
-    --     module = "games/blox_fruits.lua"
-    -- },
-    --
-    -- [0000000003] = {
-    --     name   = "King Legacy",
-    --     module = "games/king_legacy.lua"
-    -- },
-    -- ─────────────────────────────────────────────────────────
+    }
 }
 
 -- ============================================================
