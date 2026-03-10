@@ -48,6 +48,33 @@ do
     local TweenService = game:GetService("TweenService")
     local LP           = Players.LocalPlayer
 
+    -- Matcha patche Instance.new et le rend nil dans loadstring.
+    -- On le recupere depuis un objet existant du DataModel.
+    local _Instance = Instance
+    if not _Instance or type(_Instance) ~= "table" and type(_Instance) ~= "userdata" then
+        _Instance = (getfenv and getfenv(0) or {}).Instance
+    end
+    if not _Instance then
+        -- Dernier recours : on le vole depuis un service existant
+        local ok, res = pcall(function()
+            local tmp = game:GetService("RunService") -- userdata Roblox
+            -- Dans l'env Roblox, Instance est globale ; on remonte via getgenv si dispo
+            if getgenv then return getgenv().Instance end
+        end)
+        if ok and res then _Instance = res end
+    end
+    -- Wrapper securise
+    local function NewInstance(cls)
+        if _Instance and _Instance.new then
+            return _Instance.new(cls)
+        end
+        -- Fallback : certains executeurs exposent Instance via _G
+        if _G.Instance and _G.Instance.new then
+            return _G.Instance.new(cls)
+        end
+        error("Instance.new indisponible sur cet executeur")
+    end
+
     -- Couleurs
     local C = {
         Panel   = Color3.fromRGB(18,18,26),
@@ -84,20 +111,20 @@ do
     -- ils ne sont appeles que depuis UI.Init() (dans task.spawn)
     -- --------------------------------------------------------
     local function mkC(p,r)
-        local c = Instance.new("UICorner")
+        local c = NewInstance("UICorner")
         c.CornerRadius = UDim.new(0,r)
         c.Parent = p
     end
 
     local function mkS(p,col,t)
-        local s = Instance.new("UIStroke")
+        local s = NewInstance("UIStroke")
         s.Color = col
         s.Thickness = t or 1.5
         s.Parent = p
     end
 
     local function mkF(p,sz,pos,col,r,z)
-        local f = Instance.new("Frame")
+        local f = NewInstance("Frame")
         f.Size = sz
         f.Position = pos
         f.BackgroundColor3 = col
@@ -109,7 +136,7 @@ do
     end
 
     local function mkL(p,txt,sz,pos,col,fs,z,xa)
-        local l = Instance.new("TextLabel")
+        local l = NewInstance("TextLabel")
         l.Text = txt
         l.Size = sz
         l.Position = pos
@@ -127,7 +154,7 @@ do
     local function buildGui()
         local old = PG:FindFirstChild("EXE_HUB_GUI")
         if old then old:Destroy() end
-        local g = Instance.new("ScreenGui")
+        local g = NewInstance("ScreenGui")
         g.Name = "EXE_HUB_GUI"
         g.ResetOnSpawn = false
         g.IgnoreGuiInset = true
@@ -149,7 +176,7 @@ do
         mkL(tb,"EXE.HUB",UDim2.new(1,-90,1,0),UDim2.new(0,14,0,0),C.PinkHot,15,7)
         mkL(tb,"v1.0.0",UDim2.new(0,55,1,0),UDim2.new(1,-66,0,0),C.Muted,10,7,Enum.TextXAlignment.Right)
 
-        local cb = Instance.new("TextButton")
+        local cb = NewInstance("TextButton")
         cb.Size = UDim2.new(0,25,0,25)
         cb.Position = UDim2.new(1,-31,0,8)
         cb.BackgroundColor3 = C.CloseBg
