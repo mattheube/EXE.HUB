@@ -420,4 +420,9 @@ function UI.SetMainWindowStatus(status, gameName)
     if lblGame and gameName then lblGame.Text = "> " .. gameName end
 end
 
+
+if _G.__EXE_HUB_MODULES then
+    _G.__EXE_HUB_MODULES["ui"] = UI
+end
+
 return UI

@@ -1,52 +1,59 @@
 -- EXE.HUB | main.lua
--- Point d'entree principal. Compatible loadstring/executeurs Roblox.
+-- Compatible tous executeurs Roblox (Matcha, Synapse, etc.)
 
 local BASE = "https://raw.githubusercontent.com/mattheube/EXE.HUB/main/"
+
+-- Table partagee globale : les modules y deposent leur resultat
+-- au lieu de faire "return". Contourne les bugs de loadstring
+-- sur certains executeurs ou le retour est perdu.
+_G.__EXE_HUB_MODULES = {}
 
 local function loadModule(path)
     local url = BASE .. path
     print("[EXE.HUB] Chargement : " .. url)
 
-    -- Etape 1 : telechargement HTTP
+    -- HTTP
     local raw
-    local ok1, err1 = pcall(function()
-        raw = game:HttpGet(url, true)
-    end)
-    if not ok1 then
-        warn("[EXE.HUB] ECHEC HTTP : " .. path)
-        warn("[EXE.HUB] Detail : " .. tostring(err1))
-        return nil
-    end
+    pcall(function() raw = game:HttpGet(url, true) end)
     if not raw or raw == "" then
-        warn("[EXE.HUB] CONTENU VIDE : " .. path)
+        warn("[EXE.HUB] ECHEC HTTP : " .. path)
         return nil
     end
-    print("[EXE.HUB] HTTP OK (" .. #raw .. " chars) : " .. path)
+    print("[EXE.HUB] HTTP OK (" .. #raw .. " chars)")
 
-    -- Etape 2 : compilation
-    -- On appelle loadstring directement (pas via pcall)
-    -- car pcall(loadstring, raw) pose probleme sur certains executeurs
-    local fn, compileErr = loadstring(raw)
+    -- Compilation
+    local fn, err = loadstring(raw)
     if not fn then
-        warn("[EXE.HUB] ECHEC COMPILE : " .. path)
-        warn("[EXE.HUB] Detail : " .. tostring(compileErr))
+        warn("[EXE.HUB] ECHEC COMPILE : " .. path .. " | " .. tostring(err))
         return nil
     end
     print("[EXE.HUB] Compile OK : " .. path)
 
-    -- Etape 3 : execution du module
-    local ok3, result = pcall(fn)
-    if not ok3 then
-        warn("[EXE.HUB] ECHEC EXEC : " .. path)
-        warn("[EXE.HUB] Detail : " .. tostring(result))
+    -- Execution
+    local ok, result = pcall(fn)
+    if not ok then
+        warn("[EXE.HUB] ECHEC EXEC : " .. path .. " | " .. tostring(result))
         return nil
     end
-    if result == nil then
-        warn("[EXE.HUB] MODULE RETOURNE NIL : " .. path .. " (manque 'return' a la fin ?)")
-        return nil
+    print("[EXE.HUB] Exec OK : " .. path)
+
+    -- Priorite 1 : valeur retournee directement (result non nil)
+    if result ~= nil then
+        print("[EXE.HUB] Module charge via return : " .. path)
+        return result
     end
-    print("[EXE.HUB] Module OK : " .. path)
-    return result
+
+    -- Priorite 2 : module depose dans _G.__EXE_HUB_MODULES
+    local key = path:match("([^/]+)%.lua$")
+    if key and _G.__EXE_HUB_MODULES[key] then
+        print("[EXE.HUB] Module charge via _G : " .. path)
+        local mod = _G.__EXE_HUB_MODULES[key]
+        _G.__EXE_HUB_MODULES[key] = nil
+        return mod
+    end
+
+    warn("[EXE.HUB] MODULE NIL apres exec : " .. path)
+    return nil
 end
 
 print("[EXE.HUB] === DEMARRAGE ===")
@@ -67,7 +74,7 @@ local Loader = loadModule("system/loader.lua")
 if not Loader then warn("[EXE.HUB] ARRET : loader.lua") return end
 print("[EXE.HUB] loader OK")
 
-print("[EXE.HUB] Tous les modules charges. Lancement UI...")
+print("[EXE.HUB] Tous les modules charges.")
 
 UI.Init()
 UI.ShowWelcome()

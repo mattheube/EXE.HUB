@@ -1,8 +1,6 @@
 -- EXE.HUB | system/utils.lua
--- Utilitaires generaux. Sans annotations de type (compat loadstring).
 
 local Utils = {}
-
 local PREFIX = "[EXE.HUB]"
 
 function Utils.Log(msg)
@@ -22,6 +20,11 @@ function Utils.SafeCall(fn, label)
     if not ok then
         warn(PREFIX .. " SafeCall [" .. tostring(label) .. "] : " .. tostring(err))
     end
+end
+
+-- Depot dans _G en secours (certains executeurs perdent le return)
+if _G.__EXE_HUB_MODULES then
+    _G.__EXE_HUB_MODULES["utils"] = Utils
 end
 
 return Utils

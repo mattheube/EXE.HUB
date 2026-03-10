@@ -1,16 +1,12 @@
 -- EXE.HUB | system/registry.lua
--- Registre des jeux supportes. Sans annotations de type (compat loadstring).
 
 local Registry = {}
 
--- Table des jeux supportes : [PlaceId] = { name, module }
 local games = {
     [14890802310] = {
         name   = "Bizarre Lineage",
         module = "games/bizarre_lineage.lua"
     },
-    -- Ajouter d'autres jeux ici :
-    -- [PLACEID] = { name = "Nom du jeu", module = "games/fichier.lua" },
 }
 
 function Registry.GetGame(placeId)
@@ -23,6 +19,10 @@ end
 
 function Registry.GetAll()
     return games
+end
+
+if _G.__EXE_HUB_MODULES then
+    _G.__EXE_HUB_MODULES["registry"] = Registry
 end
 
 return Registry

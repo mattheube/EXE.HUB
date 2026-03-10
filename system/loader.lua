@@ -1,5 +1,4 @@
 -- EXE.HUB | system/loader.lua
--- Charge et initialise les modules de jeux. Sans annotations de type.
 
 local Loader = {}
 
@@ -32,12 +31,16 @@ function Loader.LoadGame(gameInfo, loadModule, UI, Utils)
     end)
 
     if ok then
-        Utils.Log("Init() OK pour : " .. gameInfo.name)
+        Utils.Log("Init() OK : " .. gameInfo.name)
         UI.ShowGameLoaded(gameInfo.name)
     else
-        Utils.Error("Init() echoue pour " .. gameInfo.name .. " : " .. tostring(err))
-        UI.ShowLoadError(gameInfo.name .. " (Init echoue)")
+        Utils.Error("Init() echoue : " .. tostring(err))
+        UI.ShowLoadError(gameInfo.name)
     end
+end
+
+if _G.__EXE_HUB_MODULES then
+    _G.__EXE_HUB_MODULES["loader"] = Loader
 end
 
 return Loader
