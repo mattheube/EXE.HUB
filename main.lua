@@ -60,16 +60,10 @@ do
         warn("[EXE.HUB] PlayerGui introuvable - UI annulee")
     else
 
-    -- Polices : detection dynamique sans jamais crasher
-    local function sf(list)
-        for _, n in ipairs(list) do
-            local ok, v = pcall(function() return Enum.Font[n] end)
-            if ok and v then return v end
-        end
-        return Enum.Font.Arial
-    end
-    local FB = sf({"GothamBold","GothamSemibold","Gotham","SourceSansBold","Arial"})
-    local FN = sf({"Gotham","GothamSemibold","SourceSans","Arial"})
+    -- Polices : on n'assigne aucune police
+    -- La police par defaut de Roblox est toujours disponible sur tous les executeurs
+    local FB = nil
+    local FN = nil
 
     -- Couleurs
     local C = {
@@ -111,9 +105,11 @@ do
     end
     local function mkL(p,txt,sz,pos,col,fs,fnt,z,xa)
         local l=Instance.new("TextLabel") l.Text=txt l.Size=sz l.Position=pos
-        l.BackgroundTransparency=1 l.TextColor3=col l.Font=fnt or FB
+        l.BackgroundTransparency=1 l.TextColor3=col
         l.TextSize=fs or 13 l.TextXAlignment=xa or Enum.TextXAlignment.Left
-        l.TextYAlignment=Enum.TextYAlignment.Center l.ZIndex=z or 3 l.Parent=p return l
+        l.TextYAlignment=Enum.TextYAlignment.Center l.ZIndex=z or 3
+        if fnt then pcall(function() l.FontFace=fnt end) end
+        l.Parent=p return l
     end
 
     -- ScreenGui
@@ -132,7 +128,8 @@ do
         mkL(tb,"EXE.HUB",UDim2.new(1,-90,1,0),UDim2.new(0,14,0,0),C.PinkHot,15,FB,7)
         mkL(tb,"v1.0.0",UDim2.new(0,55,1,0),UDim2.new(1,-66,0,0),C.Muted,10,FN,7,Enum.TextXAlignment.Right)
         local cb=Instance.new("TextButton") cb.Size=UDim2.new(0,25,0,25) cb.Position=UDim2.new(1,-31,0,8)
-        cb.BackgroundColor3=C.CloseBg cb.TextColor3=C.White cb.Text="x" cb.Font=FB cb.TextSize=13
+        cb.BackgroundColor3=C.CloseBg cb.TextColor3=C.White cb.Text="x" cb.TextSize=13
+        if FB then pcall(function() cb.FontFace=FB end) end
         cb.BorderSizePixel=0 cb.ZIndex=9 cb.Parent=tb mkC(cb,5)
         cb.MouseButton1Click:Connect(function()
             local tw=TweenService:Create(win,TweenInfo.new(ASPD,Enum.EasingStyle.Quart,Enum.EasingDirection.In),{Position=UDim2.new(0.5,-WW/2,1.3,0)})
