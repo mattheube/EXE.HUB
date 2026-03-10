@@ -2,7 +2,7 @@
 -- Point d'entree principal. Compatible loadstring/executeurs Roblox.
 -- IMPORTANT : Aucune annotation de type LuaU ici (non supportees par loadstring)
 
-local BASE = "https://raw.githubusercontent.com/mattheube/EXE.HUB/refs/heads/main/"
+local BASE = "https://raw.githubusercontent.com/mattheube/EXE.HUB/main/"
 
 -- Charge un module distant depuis GitHub
 local function loadModule(path)
