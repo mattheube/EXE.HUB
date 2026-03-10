@@ -45,10 +45,19 @@ local C = {
 }
 
 -- ============================================================
--- POLICES (compatibles tous clients Roblox recents)
+-- POLICES -- Detection dynamique, compatible tous executeurs
+-- Matcha n'a pas GothamSemibold. On teste dans l'ordre.
 -- ============================================================
-local FONT_BOLD   = Enum.Font.GothamSemibold
-local FONT_NORMAL = Enum.Font.Gotham
+local function safeFont(names)
+    for _, name in ipairs(names) do
+        local ok, val = pcall(function() return Enum.Font[name] end)
+        if ok and val then return val end
+    end
+    return Enum.Font.Arial
+end
+
+local FONT_BOLD   = safeFont({"GothamBold", "GothamSemibold", "Gotham", "Arial"})
+local FONT_NORMAL = safeFont({"Gotham", "GothamSemibold", "Arial"})
 
 -- ============================================================
 -- VARIABLES D'ETAT
