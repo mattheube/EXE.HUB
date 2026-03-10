@@ -1,7 +1,17 @@
 -- ╔══════════════════════════════════════════════════════════╗
--- ║  EXE.HUB  |  main.lua  —  Drawing API build (Matcha)    ║
--- ║  Redesign complet — v2.0                                 ║
+-- ║  EXE.HUB  |  main.lua  —  Drawing API (Matcha)  v2.1   ║
 -- ╚══════════════════════════════════════════════════════════╝
+--
+-- ARCHITECTURE DES MODULES JEUX :
+--   Chaque module jeu retourne une table avec :
+--     module.Name     : string   — nom du jeu
+--     module.Version  : string   — version du module
+--     module.Tabs     : table    — liste de tabs { name, build(ctx) }
+--     module.Init(ctx): function — appelée au chargement
+--
+--   Le hub lit module.Tabs pour construire les onglets dynamiquement.
+--   Les tabs "Settings" et "Credits" sont toujours ajoutés par le hub.
+--   Cette approche est scalable : chaque jeu définit ses propres tabs.
 
 local BASE       = "https://raw.githubusercontent.com/mattheube/EXE.HUB/main/"
 local CACHE_BUST = "?t=" .. tostring(math.floor(tick()))
@@ -14,9 +24,9 @@ print("[EXE.HUB] === DEMARRAGE ===")
 local Utils = {}
 do
     local P = "[EXE.HUB]"
-    function Utils.Log(m)   print(P .. " " .. tostring(m)) end
-    function Utils.Warn(m)  warn(P .. " WARN: " .. tostring(m)) end
-    function Utils.Error(m) warn(P .. " ERR: " .. tostring(m)) end
+    function Utils.Log(m)   print(P.." "..tostring(m)) end
+    function Utils.Warn(m)  warn(P.." WARN: "..tostring(m)) end
+    function Utils.Error(m) warn(P.." ERR: "..tostring(m)) end
     function Utils.SafeCall(fn, lbl)
         local ok, e = pcall(fn)
         if not ok then warn(P.." ["..tostring(lbl).."] "..tostring(e)) end
@@ -33,7 +43,7 @@ do
         [14890802310] = {
             name    = "Bizarre Lineage",
             version = "v1.0.0",
-            module  = "games/bizarre_lineage.lua"
+            module  = "games/bizarre_lineage.lua",
         },
     }
     function Registry.GetGame(id)     return games[id] or nil end
@@ -42,200 +52,556 @@ end
 print("[EXE.HUB] registry OK")
 
 -- ============================================================
--- STATE GLOBAL  (partagé entre UI et Loader)
+-- DRAWING HELPERS  (standalone, utilisés par UI + modules)
 -- ============================================================
-local HubState = {
-    gameName    = "—",
-    gameVersion = "—",
-    logs        = {},
-}
+local Draw = {}
+do
+    local pool = {}
+
+    function Draw.new(cls)
+        local o = Drawing.new(cls)
+        table.insert(pool, o)
+        return o
+    end
+
+    -- Carré rempli
+    function Draw.Rect(x,y,w,h,col,z)
+        local o = Draw.new("Square")
+        o.Position     = Vector2.new(x,y)
+        o.Size         = Vector2.new(w,h)
+        o.Color        = col
+        o.Filled       = true
+        o.Transparency = 1
+        o.Thickness    = 1
+        o.ZIndex       = z or 1
+        o.Visible      = false
+        return o
+    end
+
+    -- Contour (non rempli)
+    function Draw.Outline(x,y,w,h,col,thick,z)
+        local o = Draw.new("Square")
+        o.Position     = Vector2.new(x,y)
+        o.Size         = Vector2.new(w,h)
+        o.Color        = col
+        o.Filled       = false
+        o.Thickness    = thick or 1.5
+        o.Transparency = 1
+        o.ZIndex       = z or 2
+        o.Visible      = false
+        return o
+    end
+
+    -- Texte
+    function Draw.Text(x,y,str,col,sz,z)
+        local o = Draw.new("Text")
+        o.Position = Vector2.new(x,y)
+        o.Text     = str
+        o.Color    = col
+        o.Size     = sz or 13
+        o.ZIndex   = z or 3
+        o.Outline  = false
+        o.Center   = false
+        o.Visible  = false
+        return o
+    end
+
+    -- Ligne
+    function Draw.Line(x1,y1,x2,y2,col,thick,z)
+        local o = Draw.new("Line")
+        o.From        = Vector2.new(x1,y1)
+        o.To          = Vector2.new(x2,y2)
+        o.Color       = col
+        o.Thickness   = thick or 1
+        o.Transparency = 1
+        o.ZIndex      = z or 2
+        o.Visible     = false
+        return o
+    end
+
+    -- Affiche / cache un groupe
+    function Draw.SetVisible(group, v)
+        for _,o in ipairs(group) do pcall(function() o.Visible = v end) end
+    end
+
+    -- Détruit un groupe et le vide
+    function Draw.Destroy(group)
+        for _,o in ipairs(group) do pcall(function() o:Remove() end) end
+        table.clear(group)
+    end
+
+    -- Déplace un groupe de (dx,dy)
+    function Draw.Move(group, dx, dy)
+        for _,o in ipairs(group) do
+            pcall(function()
+                if rawget(o,"Position") ~= nil then
+                    o.Position = Vector2.new(o.Position.X+dx, o.Position.Y+dy)
+                end
+                if rawget(o,"From") ~= nil then
+                    o.From = Vector2.new(o.From.X+dx, o.From.Y+dy)
+                    o.To   = Vector2.new(o.To.X+dx,   o.To.Y+dy)
+                end
+            end)
+        end
+    end
+
+    function Draw.DestroyAll()
+        for _,o in ipairs(pool) do pcall(function() o:Remove() end) end
+        table.clear(pool)
+    end
+end
 
 -- ============================================================
--- UI — Drawing API (Matcha, 100 % sans Instance.new)
+-- UI
 -- ============================================================
 local UI = {}
 do
-    -- ─── résolution écran ────────────────────────────────────
+    -- ── résolution ──────────────────────────────────────────
     local SW, SH = 1920, 1080
     pcall(function()
         SW = workspace.CurrentCamera.ViewportSize.X
         SH = workspace.CurrentCamera.ViewportSize.Y
     end)
 
-    -- ─── couleurs par défaut (thème sakura) ──────────────────
-    local Themes = {
-        sakura = {
-            accent   = Color3.fromRGB(220, 80, 140),
-            accentHi = Color3.fromRGB(255,130,180),
-            glow     = Color3.fromRGB(255,100,160),
-        },
-        blue = {
-            accent   = Color3.fromRGB(60, 130, 255),
-            accentHi = Color3.fromRGB(120,180,255),
-            glow     = Color3.fromRGB(80,150,255),
-        },
-        green = {
-            accent   = Color3.fromRGB(60, 210, 130),
-            accentHi = Color3.fromRGB(120,240,170),
-            glow     = Color3.fromRGB(80,220,140),
-        },
-        red = {
-            accent   = Color3.fromRGB(230, 60, 60),
-            accentHi = Color3.fromRGB(255,110,110),
-            glow     = Color3.fromRGB(240,80,80),
-        },
+    -- ── thèmes ──────────────────────────────────────────────
+    local THEMES = {
+        { name="Sakura", accent=Color3.fromRGB(220,80,140),  hi=Color3.fromRGB(255,130,180) },
+        { name="Blue",   accent=Color3.fromRGB(60,130,255),  hi=Color3.fromRGB(120,180,255) },
+        { name="Green",  accent=Color3.fromRGB(60,210,130),  hi=Color3.fromRGB(120,240,170) },
+        { name="Red",    accent=Color3.fromRGB(230,60,60),   hi=Color3.fromRGB(255,110,110) },
     }
-    local currentTheme = "sakura"
+    local themeIdx = 1
+    local function AC()  return THEMES[themeIdx].accent end
+    local function ACH() return THEMES[themeIdx].hi     end
 
-    local C = {
-        bg      = Color3.fromRGB(12, 12, 20),
-        panel   = Color3.fromRGB(18, 18, 28),
-        titleBg = Color3.fromRGB(10,  8, 18),
-        tabBg   = Color3.fromRGB(22, 18, 32),
-        tabSel  = Color3.fromRGB(30, 22, 42),
-        border  = Color3.fromRGB(38, 28, 55),
-        white   = Color3.fromRGB(235,235,248),
-        muted   = Color3.fromRGB(130,100,145),
-        green   = Color3.fromRGB(90, 210,130),
-        yellow  = Color3.fromRGB(250,195, 75),
-        red     = Color3.fromRGB(250, 85, 85),
-        notifBg = Color3.fromRGB(14, 10, 22),
-        petal   = Color3.fromRGB(255,175,205),
+    -- ── palette fixe ────────────────────────────────────────
+    local COL = {
+        bg       = Color3.fromRGB(13,12,20),
+        panel    = Color3.fromRGB(18,17,28),
+        titleBg  = Color3.fromRGB(10, 8,18),
+        tabBg    = Color3.fromRGB(20,18,30),
+        tabHover = Color3.fromRGB(28,24,40),
+        tabSel   = Color3.fromRGB(32,26,46),
+        border   = Color3.fromRGB(42,30,58),
+        white    = Color3.fromRGB(235,235,248),
+        muted    = Color3.fromRGB(120, 95,138),
+        dimmed   = Color3.fromRGB( 80, 65,100),
+        green    = Color3.fromRGB(90, 210,130),
+        yellow   = Color3.fromRGB(250,195, 75),
+        red      = Color3.fromRGB(250, 85, 85),
+        notifBg  = Color3.fromRGB(14,11,22),
+        petal    = Color3.fromRGB(255,175,205),
     }
-    local function accent()   return Themes[currentTheme].accent   end
-    local function accentHi() return Themes[currentTheme].accentHi end
-    local function glow()     return Themes[currentTheme].glow     end
 
-    -- ─── dimensions ──────────────────────────────────────────
-    -- Fenêtre : ~1/6 de l'écran, portrait (taller than wide)
-    local WW = math.floor(SW / 6)
-    local WH = math.floor(SH / 3.2)
-    WW = math.max(WW, 240)
-    WH = math.max(WH, 400)
-    local WX = math.floor(SW / 2 - WW / 2)
-    local WY = math.floor(SH / 2 - WH / 2)
+    -- ── dimensions fenêtre ──────────────────────────────────
+    -- Portrait : ~SW/5.5 de large, ~SH/2.8 de haut
+    local WW = math.max(260, math.floor(SW / 5.5))
+    local WH = math.max(420, math.floor(SH / 2.8))
+    local WX = math.floor(SW/2 - WW/2)
+    local WY = math.floor(SH/2 - WH/2)
 
-    local TITLE_H = 38
-    local TAB_H   = 30
-    local CONTENT_Y = TITLE_H + TAB_H  -- y dans la fenêtre où commence le contenu
+    local TITLE_H  = 36      -- hauteur barre titre
+    local TAB_H    = 28      -- hauteur barre onglets
+    local CONT_Y   = TITLE_H + TAB_H   -- début zone contenu (relatif à WY)
+    local PADDING  = 14      -- padding intérieur
+    local LINE_H   = 20      -- hauteur d'une ligne de texte
 
-    local TABS = {"Main","Items","Teleport","Settings","Credits","Logs"}
-    local TAB_W = math.floor(WW / #TABS)
-
-    -- notifs
-    local NW, NH  = 280, 58
-    local NX, NY0 = 12, 70
-    local NGAP    = 8
-    local NDUR    = 4.0
-
-    -- pétales
-    local PMAX, PFRQ = 8, 6
-    local petalCount = 0
-
-    -- ─── état interne ─────────────────────────────────────────
-    local allObjs    = {}   -- tous les Drawing (pour cleanup)
-    local winObjs    = {}   -- objets de la fenêtre principale
-    local notifs     = {}
-    local uiVisible  = true
+    -- ── état ────────────────────────────────────────────────
     local uiReady    = false
+    local uiVisible  = true
     local activeTab  = 1
-    local tabObjs    = {}   -- {[tabIndex] = {list of Drawing objs}}
-    local tabButtons = {}   -- {[tabIndex] = {bg, label}}
-    local clickZones = {}
     local toggleKey  = Enum.KeyCode.F1
 
-    -- labels dynamiques
-    local lblGameName, lblGameVer
-    -- glow state
-    local glowLines  = {}
+    -- listes d'objets Drawing
+    local baseObjs   = {}    -- fond + titre + onglets (persistants)
+    local glowLines  = {}    -- 4 lignes de bord animées
+    local tabObjs    = {}    -- tabObjs[i] = liste d'objets du tab i
+    local tabBtnObjs = {}    -- tabBtnObjs[i] = {bg, label, line}
+    local notifList  = {}    -- notifications actives
+    local petalObjs  = {}    -- pétales
 
-    -- ─── helpers Drawing ──────────────────────────────────────
-    local function D(cls)
-        local o = Drawing.new(cls)
-        table.insert(allObjs, o)
-        return o
+    -- zones cliquables : liste de {x,y,w,h,fn}
+    local zones      = {}
+
+    -- onglets courants (définis par module jeu + hub)
+    local currentTabs = {}   -- { name, buildFn }
+
+    -- données dynamiques
+    local dynGameName = "—"
+    local dynGameVer  = "—"
+    local lblTitleGame   = nil
+    local lblTitleVer    = nil
+    local logLines       = {}
+
+    -- ── zone cliquable ──────────────────────────────────────
+    local function addZone(x,y,w,h,fn)
+        table.insert(zones, {x=x,y=y,w=w,h=h,fn=fn})
+        return #zones
+    end
+    local function clearZones()
+        table.clear(zones)
     end
 
-    local function sq(x,y,w,h,col,filled,thick,z)
-        local s = D("Square")
-        s.Position     = Vector2.new(x,y)
-        s.Size         = Vector2.new(w,h)
-        s.Color        = col
-        s.Filled       = filled ~= false
-        s.Thickness    = thick or 1
-        s.Transparency = 1
-        s.ZIndex       = z or 1
-        s.Visible      = false
-        return s
-    end
+    -- ── construction du contenu d'un onglet ─────────────────
+    -- Retourne la liste des objets créés
+    local function buildTabContent(tabIdx)
+        local objs = {}
+        local cx = WX + PADDING
+        local cy = WY + CONT_Y + PADDING
+        local cw = WW - PADDING*2
 
-    local function tx(x,y,str,col,sz,z,center)
-        local t = D("Text")
-        t.Position = Vector2.new(x,y)
-        t.Text     = str
-        t.Color    = col
-        t.Size     = sz or 13
-        t.ZIndex   = z or 3
-        t.Outline  = false
-        t.Center   = center or false
-        t.Visible  = false
-        return t
-    end
+        local tab = currentTabs[tabIdx]
+        if not tab then return objs end
 
-    local function ln(x1,y1,x2,y2,col,thick,z)
-        local l = D("Line")
-        l.From        = Vector2.new(x1,y1)
-        l.To          = Vector2.new(x2,y2)
-        l.Color       = col
-        l.Thickness   = thick or 1
-        l.Transparency = 1
-        l.ZIndex      = z or 2
-        l.Visible     = false
-        return l
-    end
-
-    local function setVis(group, v)
-        for _,o in ipairs(group) do pcall(function() o.Visible = v end) end
-    end
-
-    local function destroyGroup(group)
-        for _,o in ipairs(group) do
-            pcall(function() o:Remove() end)
-            for i,a in ipairs(allObjs) do
-                if a == o then table.remove(allObjs,i) break end
+        -- Si le tab fournit une fonction build, on l'appelle
+        if type(tab.buildFn) == "function" then
+            local ok, err = pcall(function()
+                tab.buildFn({
+                    cx=cx, cy=cy, cw=cw,
+                    COL=COL, AC=AC, ACH=ACH,
+                    PADDING=PADDING, LINE_H=LINE_H,
+                    Draw=Draw, objs=objs,
+                    addZone=addZone,
+                    WX=function() return WX end,
+                    WY=function() return WY end,
+                })
+            end)
+            if not ok then
+                local t = Draw.Text(cx, cy, "Erreur: "..tostring(err), COL.red, 10, 4)
+                table.insert(objs, t)
             end
         end
-        table.clear(group)
+
+        return objs
     end
 
-    -- ─── zones cliquables ─────────────────────────────────────
-    local function hit(x,y,w,h,fn)
-        table.insert(clickZones,{x=x,y=y,w=w,h=h,fn=fn})
-        return #clickZones
-    end
-    local function removeHit(id)
-        if id and clickZones[id] then clickZones[id]=nil end
+    -- ── bascule onglet ──────────────────────────────────────
+    local function switchTab(newIdx)
+        if newIdx == activeTab then return end
+
+        -- cache ancien
+        if tabObjs[activeTab] then
+            Draw.SetVisible(tabObjs[activeTab], false)
+        end
+        -- reset style ancien bouton
+        local old = tabBtnObjs[activeTab]
+        if old then
+            old.bg.Color    = COL.tabBg
+            old.label.Color = COL.muted
+            old.line.Visible = false
+        end
+
+        activeTab = newIdx
+
+        -- construit si pas encore fait
+        if not tabObjs[activeTab] then
+            tabObjs[activeTab] = buildTabContent(activeTab)
+            -- ajoute dans baseObjs pour le déplacement
+            for _, o in ipairs(tabObjs[activeTab]) do
+                table.insert(baseObjs, o)
+            end
+        end
+
+        Draw.SetVisible(tabObjs[activeTab], uiVisible)
+
+        -- met en valeur nouveau bouton
+        local nw = tabBtnObjs[activeTab]
+        if nw then
+            nw.bg.Color    = COL.tabSel
+            nw.label.Color = ACH()
+            nw.line.Color  = AC()
+            nw.line.Visible = uiVisible
+        end
     end
 
-    -- ─── drag state ───────────────────────────────────────────
-    local dragActive  = false
-    local dragOffX, dragOffY = 0, 0
+    -- ── construction fenêtre principale ─────────────────────
+    local function buildWindow()
+        clearZones()
+        table.clear(baseObjs)
+        table.clear(glowLines)
+        table.clear(tabBtnObjs)
+        table.clear(tabObjs)
 
-    -- ─── input loop ───────────────────────────────────────────
+        local x,y = WX,WY
+
+        -- fond principal
+        table.insert(baseObjs, Draw.Rect(x,y,WW,WH, COL.bg, 1))
+
+        -- ── barre de titre ──────────────────────────────────
+        table.insert(baseObjs, Draw.Rect(x, y, WW, TITLE_H, COL.titleBg, 2))
+
+        -- "EXE.HUB"
+        table.insert(baseObjs, Draw.Text(x+PADDING, y+10, "EXE.HUB", ACH(), 14, 5))
+
+        -- séparateur vertical fin
+        table.insert(baseObjs, Draw.Line(x+88, y+8, x+88, y+TITLE_H-8, COL.border, 1, 4))
+
+        -- nom jeu + version (dynamiques)
+        lblTitleGame = Draw.Text(x+96, y+11, dynGameName, COL.muted, 11, 5)
+        table.insert(baseObjs, lblTitleGame)
+
+        lblTitleVer = Draw.Text(x+WW-PADDING, y+11, dynGameVer, COL.dimmed, 10, 5)
+        -- alignement droite approximatif : on positionne avec un offset fixe
+        lblTitleVer.Position = Vector2.new(x+WW-60, y+11)
+        table.insert(baseObjs, lblTitleVer)
+
+        -- ligne de séparation titre / onglets
+        table.insert(baseObjs, Draw.Line(x, y+TITLE_H, x+WW, y+TITLE_H, COL.border, 1, 3))
+
+        -- ── barre onglets ────────────────────────────────────
+        local tabY = y + TITLE_H
+        local nTabs = #currentTabs
+        local tabW  = math.floor(WW / math.max(nTabs, 1))
+
+        for i, tab in ipairs(currentTabs) do
+            local tx = x + (i-1)*tabW
+            local isSel = (i == activeTab)
+
+            local tbg = Draw.Rect(tx, tabY, tabW, TAB_H,
+                isSel and COL.tabSel or COL.tabBg, 2)
+            table.insert(baseObjs, tbg)
+
+            -- séparateur entre onglets
+            if i > 1 then
+                local sep = Draw.Line(tx, tabY+4, tx, tabY+TAB_H-4, COL.border, 1, 3)
+                table.insert(baseObjs, sep)
+            end
+
+            -- label centré dans l'onglet
+            local labelX = tx + math.floor(tabW/2) - math.floor(#tab.name * 3)
+            local tlbl = Draw.Text(labelX, tabY+8,
+                tab.name,
+                isSel and ACH() or COL.muted,
+                10, 4)
+            table.insert(baseObjs, tlbl)
+
+            -- soulignement
+            local tline = Draw.Line(tx+3, tabY+TAB_H-2, tx+tabW-3, tabY+TAB_H-2,
+                AC(), 1.5, 4)
+            tline.Visible = isSel
+            table.insert(baseObjs, tline)
+
+            tabBtnObjs[i] = {bg=tbg, label=tlbl, line=tline}
+
+            -- zone cliquable
+            local ci = i
+            addZone(tx, tabY, tabW, TAB_H, function()
+                switchTab(ci)
+            end)
+        end
+
+        -- ligne de séparation onglets / contenu
+        table.insert(baseObjs, Draw.Line(x, y+CONT_Y, x+WW, y+CONT_Y, COL.border, 1, 3))
+
+        -- fond zone contenu
+        table.insert(baseObjs, Draw.Rect(x, y+CONT_Y, WW, WH-CONT_Y, COL.panel, 1))
+
+        -- ── contour + glow ───────────────────────────────────
+        -- contour fixe sombre
+        table.insert(baseObjs, Draw.Outline(x,y,WW,WH, COL.border, 1, 3))
+
+        -- 4 lignes de glow animé
+        local function gl(x1,y1,x2,y2)
+            local l = Draw.Line(x1,y1,x2,y2, AC(), 1.5, 4)
+            l.Transparency = 0.7
+            table.insert(baseObjs, l)
+            table.insert(glowLines, l)
+            return l
+        end
+        gl(x,    y,    x+WW, y)        -- top
+        gl(x+WW, y,    x+WW, y+WH)     -- right
+        gl(x+WW, y+WH, x,    y+WH)     -- bottom
+        gl(x,    y+WH, x,    y)        -- left
+
+        -- ── construit l'onglet actif ─────────────────────────
+        tabObjs[activeTab] = buildTabContent(activeTab)
+        for _, o in ipairs(tabObjs[activeTab]) do
+            table.insert(baseObjs, o)
+        end
+    end
+
+    -- ── onglets par défaut (avant chargement d'un module) ───
+    local function makeDefaultTabs()
+        currentTabs = {
+            {
+                name = "Main",
+                buildFn = function(ctx)
+                    local cx,cy = ctx.cx, ctx.cy
+                    local o = ctx.objs
+                    table.insert(o, Draw.Text(cx, cy,    "Statut",      ctx.COL.muted,  10, 4))
+                    table.insert(o, Draw.Text(cx, cy+14, "En attente...", ctx.ACH(),    12, 4))
+                    table.insert(o, Draw.Text(cx, cy+38, "Jeu",          ctx.COL.muted, 10, 4))
+                    table.insert(o, Draw.Text(cx, cy+52, dynGameName,    ctx.COL.white, 12, 4))
+                    table.insert(o, Draw.Text(cx, cy+76, "Version",      ctx.COL.muted, 10, 4))
+                    table.insert(o, Draw.Text(cx, cy+90, dynGameVer,     ctx.COL.white, 12, 4))
+                end
+            },
+            {
+                name = "Settings",
+                buildFn = function(ctx)
+                    local cx,cy,cw = ctx.cx, ctx.cy, ctx.cw
+                    local o = ctx.objs
+                    local sy = cy
+
+                    -- ── Thème ──
+                    table.insert(o, Draw.Text(cx, sy, "THEME", ctx.COL.muted, 9, 4))
+                    sy = sy + 16
+
+                    local btnW = math.floor((cw - 3*4) / 4)
+                    for ti, th in ipairs(THEMES) do
+                        local bx = cx + (ti-1)*(btnW+4)
+                        local isSel = (ti == themeIdx)
+                        local btn = Draw.Rect(bx, sy, btnW, 22, th.accent, 4)
+                        btn.Transparency = isSel and 1 or 0.5
+                        table.insert(o, btn)
+                        local lx = bx + math.floor(btnW/2) - math.floor(#th.name*3)
+                        local lbl = Draw.Text(lx, sy+5, th.name, ctx.COL.white, 9, 5)
+                        table.insert(o, lbl)
+                        local tii = ti
+                        ctx.addZone(bx, sy, btnW, 22, function()
+                            themeIdx = tii
+                            -- update couleurs glow + onglet actif
+                            for _, gl in ipairs(glowLines) do
+                                pcall(function() gl.Color = AC() end)
+                            end
+                            if tabBtnObjs[activeTab] then
+                                tabBtnObjs[activeTab].label.Color = ACH()
+                                tabBtnObjs[activeTab].line.Color  = AC()
+                            end
+                        end)
+                    end
+                    sy = sy + 32
+
+                    -- ── Touche toggle ──
+                    table.insert(o, Draw.Text(cx, sy, "TOUCHE AFFICHAGE (actuel: "..tostring(toggleKey)..")", ctx.COL.muted, 9, 4))
+                    sy = sy + 16
+
+                    local keys = {
+                        {name="F1",  code=Enum.KeyCode.F1},
+                        {name="F2",  code=Enum.KeyCode.F2},
+                        {name="F3",  code=Enum.KeyCode.F3},
+                        {name="Ins", code=Enum.KeyCode.Insert},
+                        {name="RS",  code=Enum.KeyCode.RightShift},
+                    }
+                    local kbtnW = math.floor((cw - 4*4) / 5)
+                    for ki, k in ipairs(keys) do
+                        local bx = cx + (ki-1)*(kbtnW+4)
+                        local isSel = (k.code == toggleKey)
+                        local kbg = Draw.Rect(bx, sy, kbtnW, 22,
+                            isSel and ctx.COL.tabSel or ctx.COL.tabBg, 4)
+                        table.insert(o, kbg)
+                        if isSel then
+                            local kb_out = Draw.Outline(bx, sy, kbtnW, 22, ctx.AC(), 1, 5)
+                            table.insert(o, kb_out)
+                        end
+                        local lx = bx + math.floor(kbtnW/2) - math.floor(#k.name*3)
+                        local klbl = Draw.Text(lx, sy+5, k.name,
+                            isSel and ctx.ACH() or ctx.COL.muted, 9, 5)
+                        table.insert(o, klbl)
+                        local kci = ki
+                        ctx.addZone(bx, sy, kbtnW, 22, function()
+                            toggleKey = keys[kci].code
+                            -- rebuild settings tab
+                            if tabObjs[activeTab] then
+                                Draw.SetVisible(tabObjs[activeTab], false)
+                                Draw.Destroy(tabObjs[activeTab])
+                                for _, bb in ipairs(tabObjs[activeTab]) do
+                                    for i2,a in ipairs(baseObjs) do
+                                        if a==bb then table.remove(baseObjs,i2) break end
+                                    end
+                                end
+                            end
+                            tabObjs[activeTab] = nil
+                            -- supprimer les zones de ce tab (approximation : rebuild)
+                            -- on rebuild la fenêtre entière
+                            Draw.SetVisible(baseObjs, false)
+                            Draw.Destroy(baseObjs)
+                            buildWindow()
+                            Draw.SetVisible(baseObjs, true)
+                            switchTab(activeTab)
+                        end)
+                    end
+                    sy = sy + 32
+
+                    table.insert(o, Draw.Text(cx, sy,
+                        "Appuyez sur F1 (ou la touche choisie)", ctx.COL.muted, 9, 4))
+                    table.insert(o, Draw.Text(cx, sy+13,
+                        "pour masquer/afficher le hub.", ctx.COL.muted, 9, 4))
+                end
+            },
+            {
+                name = "Credits",
+                buildFn = function(ctx)
+                    local cx,cy = ctx.cx, ctx.cy
+                    local o = ctx.objs
+                    local sy = cy
+                    table.insert(o, Draw.Text(cx, sy,    "EXE.HUB",             ctx.ACH(), 16, 5))
+                    table.insert(o, Draw.Text(cx, sy+22, "Script hub pour Roblox", ctx.COL.muted, 10, 4))
+                    table.insert(o, Draw.Text(cx, sy+44, "Dev : mattheube",      ctx.COL.white, 11, 4))
+                    table.insert(o, Draw.Text(cx, sy+60, "github.com/mattheube/EXE.HUB", ctx.COL.muted, 9, 4))
+                    sy = sy + 82
+                    table.insert(o, Draw.Line(cx, sy, cx+ctx.cw, sy, ctx.COL.border, 1, 4))
+                    sy = sy + 10
+                    table.insert(o, Draw.Text(cx, sy, "Version hub : v2.1", ctx.COL.dimmed, 9, 4))
+                end
+            },
+            {
+                name = "Logs",
+                buildFn = function(ctx)
+                    local cx,cy = ctx.cx, ctx.cy
+                    local o = ctx.objs
+                    local sy = cy
+                    local maxLines = math.floor((WH - CONT_Y - PADDING*2) / 14)
+                    local start = math.max(1, #logLines - maxLines + 1)
+                    for i = start, #logLines do
+                        if logLines[i] then
+                            table.insert(o, Draw.Text(cx, sy, logLines[i], ctx.COL.muted, 9, 4))
+                            sy = sy + 14
+                        end
+                    end
+                    if #logLines == 0 then
+                        table.insert(o, Draw.Text(cx, sy, "Aucun log.", ctx.COL.dimmed, 10, 4))
+                    end
+                end
+            },
+        }
+    end
+
+    -- ── update labels titre ──────────────────────────────────
+    local function refreshTitle()
+        if lblTitleGame then
+            pcall(function() lblTitleGame.Text = dynGameName end)
+        end
+        if lblTitleVer then
+            pcall(function() lblTitleVer.Text = dynGameVer end)
+        end
+    end
+
+    -- ── log interne ──────────────────────────────────────────
+    local function addLog(msg)
+        local ts = string.format("[%02d:%02d]",
+            math.floor(tick()/3600)%24,
+            math.floor(tick()/60)%60)
+        table.insert(logLines, ts.." "..tostring(msg))
+        if #logLines > 60 then table.remove(logLines,1) end
+    end
+
+    -- ── input loop ───────────────────────────────────────────
     task.spawn(function()
         local UIS = UserInputService
-        local prevLMB = false
+        local prevLMB  = false
         local prevKeys = {}
+        local dragActive = false
+        local dragOX, dragOY = 0,0
 
         while true do
             task.wait(0.033)
             if not uiReady then continue end
 
-            -- souris
-            local mx, my = 0, 0
+            local mx, my = 0,0
             pcall(function()
-                local pos = UIS:GetMouseLocation()
-                mx, my = pos.X, pos.Y
+                local p = UIS:GetMouseLocation()
+                mx,my = p.X, p.Y
             end)
 
             local lmb = false
@@ -243,361 +609,147 @@ do
                 lmb = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
             end)
 
-            -- drag
+            -- ── drag ──
             if dragActive then
                 if lmb then
-                    local nx = math.floor(mx - dragOffX)
-                    local ny = math.floor(my - dragOffY)
-                    local dx, dy = nx - WX, ny - WY
+                    local nx = math.floor(mx - dragOX)
+                    local ny = math.floor(my - dragOY)
+                    local dx, dy = nx-WX, ny-WY
                     if dx ~= 0 or dy ~= 0 then
                         WX, WY = nx, ny
-                        -- déplace tous les objets de la fenêtre
-                        for _, o in ipairs(winObjs) do
-                            pcall(function()
-                                if o.Position then
-                                    o.Position = Vector2.new(o.Position.X+dx, o.Position.Y+dy)
-                                elseif o.From then
-                                    o.From = Vector2.new(o.From.X+dx, o.From.Y+dy)
-                                    o.To   = Vector2.new(o.To.X+dx,   o.To.Y+dy)
-                                end
-                            end)
-                        end
+                        Draw.Move(baseObjs, dx, dy)
                         -- déplace aussi les zones cliquables
-                        for _, z in ipairs(clickZones) do
-                            if z then z.x = z.x+dx z.y = z.y+dy end
+                        for _,z in ipairs(zones) do
+                            z.x = z.x+dx
+                            z.y = z.y+dy
                         end
+                        -- déplace les pétales ne dépasse pas — ils restent dans la même zone
                     end
                 else
                     dragActive = false
                 end
             end
 
-            -- clic
+            -- ── clic ──
             if lmb and not prevLMB then
-                -- zone drag = barre de titre
+                -- drag : clic dans la barre de titre
                 if uiVisible and
                    mx >= WX and mx <= WX+WW and
                    my >= WY and my <= WY+TITLE_H then
                     dragActive = true
-                    dragOffX   = mx - WX
-                    dragOffY   = my - WY
+                    dragOX = mx - WX
+                    dragOY = my - WY
                 end
                 -- zones cliquables
-                for _, z in ipairs(clickZones) do
-                    if z and mx >= z.x and mx <= z.x+z.w and my >= z.y and my <= z.y+z.h then
-                        pcall(z.fn)
+                if uiVisible then
+                    for _,z in ipairs(zones) do
+                        if mx >= z.x and mx <= z.x+z.w and
+                           my >= z.y and my <= z.y+z.h then
+                            pcall(z.fn)
+                        end
                     end
                 end
             end
             prevLMB = lmb
 
-            -- touches
-            for _, kc in ipairs({toggleKey}) do
-                local down = false
-                pcall(function() down = UIS:IsKeyDown(kc) end)
-                local key = tostring(kc)
-                if down and not prevKeys[key] then
-                    uiVisible = not uiVisible
-                    setVis(winObjs, uiVisible)
+            -- ── touche toggle ──
+            local keyStr = tostring(toggleKey)
+            local keyDown = false
+            pcall(function() keyDown = UIS:IsKeyDown(toggleKey) end)
+            if keyDown and not prevKeys[keyStr] then
+                uiVisible = not uiVisible
+                Draw.SetVisible(baseObjs, uiVisible)
+                if tabObjs[activeTab] then
+                    Draw.SetVisible(tabObjs[activeTab], uiVisible)
                 end
-                prevKeys[key] = down
+                -- glow
+                for _,gl in ipairs(glowLines) do
+                    pcall(function() gl.Visible = uiVisible end)
+                end
             end
+            prevKeys[keyStr] = keyDown
         end
     end)
 
-    -- ─── construction de la fenêtre ───────────────────────────
-    local function buildWin()
-        table.clear(winObjs)
-        table.clear(clickZones)
-        table.clear(tabObjs)
-        table.clear(tabButtons)
-        table.clear(glowLines)
-
-        local x, y = WX, WY
-
-        -- ── fond principal ──
-        local bg = sq(x,y,WW,WH,C.bg,true,1,1)
-        table.insert(winObjs, bg)
-
-        -- ── contour fixe (bord sombre) ──
-        local border = sq(x,y,WW,WH,C.border,false,1.5,2)
-        table.insert(winObjs, border)
-
-        -- ── barre de titre ──
-        local tb = sq(x,y,WW,TITLE_H,C.titleBg,true,1,2)
-        table.insert(winObjs, tb)
-
-        -- "exe.hub"
-        local lblHub = tx(x+12, y+TITLE_H/2-7, "exe.hub", accentHi(), 15, 4)
-        table.insert(winObjs, lblHub)
-
-        -- game name (dynamique)
-        lblGameName = tx(x+82, y+TITLE_H/2-6, HubState.gameName, C.muted, 12, 4)
-        table.insert(winObjs, lblGameName)
-
-        -- version (dynamique)
-        lblGameVer = tx(x+WW-10, y+TITLE_H/2-5, HubState.gameVersion, C.muted, 10, 4)
-        lblGameVer.Center = false
-        -- on va l'aligner à droite manuellement
-        table.insert(winObjs, lblGameVer)
-
-        -- ── barre onglets ──
-        for i, name in ipairs(TABS) do
-            local tx0 = x + (i-1)*TAB_W
-            local ty0 = y + TITLE_H
-            local col = (i == activeTab) and C.tabSel or C.tabBg
-            local tbg = sq(tx0, ty0, TAB_W, TAB_H, col, true, 1, 2)
-            table.insert(winObjs, tbg)
-            -- séparateur vertical fin entre onglets
-            if i > 1 then
-                local sep = ln(tx0, ty0+4, tx0, ty0+TAB_H-4, C.border, 1, 3)
-                table.insert(winObjs, sep)
-            end
-            local tcol = (i == activeTab) and accentHi() or C.muted
-            local tlbl = tx(tx0 + TAB_W/2, ty0 + TAB_H/2 - 6, name, tcol, 10, 4, true)
-            table.insert(winObjs, tlbl)
-            -- soulignement onglet actif
-            local tul = ln(tx0+2, ty0+TAB_H-1, tx0+TAB_W-2, ty0+TAB_H-1, accent(), 1.5, 3)
-            tul.Visible = (i == activeTab)
-            table.insert(winObjs, tul)
-
-            tabButtons[i] = {bg=tbg, label=tlbl, underline=tul}
-
-            local ci = i
-            hit(tx0, ty0, TAB_W, TAB_H, function()
-                -- désactive ancien onglet
-                tabButtons[activeTab].bg.Color    = C.tabBg
-                tabButtons[activeTab].label.Color = C.muted
-                tabButtons[activeTab].underline.Visible = false
-                if tabObjs[activeTab] then setVis(tabObjs[activeTab], false) end
-                -- active nouveau
-                activeTab = ci
-                tabButtons[activeTab].bg.Color    = C.tabSel
-                tabButtons[activeTab].label.Color = accentHi()
-                tabButtons[activeTab].underline.Visible = uiVisible
-                if tabObjs[activeTab] then setVis(tabObjs[activeTab], uiVisible) end
-            end)
-        end
-
-        -- ── contenu par onglet ──
-        local cx = x + 10
-        local cy = y + CONTENT_Y + 10
-        local cw = WW - 20
-        -- Fond zone contenu
-        local contentBg = sq(x, y+CONTENT_Y, WW, WH-CONTENT_Y, C.panel, true, 1, 1)
-        table.insert(winObjs, contentBg)
-
-        -- ── Tab 1 : Main ──
-        do
-            local objs = {}
-            table.insert(objs, tx(cx, cy,      "Statut",       C.muted,   10, 4))
-            table.insert(objs, tx(cx, cy+16,   "En attente...",accentHi(),12, 4))
-            table.insert(objs, tx(cx, cy+38,   "Jeu",          C.muted,   10, 4))
-            table.insert(objs, tx(cx, cy+54,   HubState.gameName, C.white, 12, 4))
-            table.insert(objs, tx(cx, cy+76,   "Version",      C.muted,   10, 4))
-            table.insert(objs, tx(cx, cy+92,   HubState.gameVersion, C.white, 12, 4))
-            tabObjs[1] = objs
-        end
-
-        -- ── Tab 2 : Items ──
-        do
-            local objs = {}
-            table.insert(objs, tx(cx, cy, "Items — bientot disponible", C.muted, 11, 4))
-            tabObjs[2] = objs
-        end
-
-        -- ── Tab 3 : Teleport ──
-        do
-            local objs = {}
-            table.insert(objs, tx(cx, cy, "Teleport — bientot disponible", C.muted, 11, 4))
-            tabObjs[3] = objs
-        end
-
-        -- ── Tab 4 : Settings ──
-        do
-            local objs = {}
-            local sy = cy
-
-            table.insert(objs, tx(cx, sy, "Theme / couleur accent", C.white, 11, 4))
-            sy = sy + 18
-
-            local themeNames = {"sakura","blue","green","red"}
-            local themeColors = {
-                Color3.fromRGB(220,80,140),
-                Color3.fromRGB(60,130,255),
-                Color3.fromRGB(60,210,130),
-                Color3.fromRGB(230,60,60),
-            }
-            for ti, tname in ipairs(themeNames) do
-                local bx = cx + (ti-1)*(cw/4+2)
-                local btn = sq(bx, sy, cw/4-2, 20, themeColors[ti], true, 1, 4)
-                table.insert(objs, btn)
-                local blbl = tx(bx + (cw/4-2)/2, sy+4, tname, C.white, 9, 5, true)
-                table.insert(objs, blbl)
-                local tni = tname
-                local btni = btn
-                hit(bx, sy, cw/4-2, 20, function()
-                    currentTheme = tni
-                    -- met à jour les couleurs dynamiques
-                    lblHub.Color      = accentHi()
-                    tabButtons[activeTab].label.Color = accentHi()
-                    tabButtons[activeTab].underline.Color = accent()
-                end)
-            end
-            sy = sy + 30
-
-            table.insert(objs, tx(cx, sy, "Touche d'affichage (defaut: F1)", C.white, 11, 4))
-            sy = sy + 16
-            local keyNames = {"F1","F2","F3","Insert","RightShift"}
-            local keyCodes = {
-                Enum.KeyCode.F1,
-                Enum.KeyCode.F2,
-                Enum.KeyCode.F3,
-                Enum.KeyCode.Insert,
-                Enum.KeyCode.RightShift,
-            }
-            for ki, kname in ipairs(keyNames) do
-                local bx = cx + (ki-1)*(cw/#keyNames+1)
-                local isActive = (keyCodes[ki] == toggleKey)
-                local btn = sq(bx, sy, cw/#keyNames-1, 20,
-                    isActive and C.tabSel or C.tabBg, true, 1, 4)
-                table.insert(objs, btn)
-                local blbl = tx(bx+(cw/#keyNames-1)/2, sy+4, kname,
-                    isActive and accentHi() or C.muted, 9, 5, true)
-                table.insert(objs, blbl)
-                local kci = ki
-                hit(bx, sy, cw/#keyNames-1, 20, function()
-                    toggleKey = keyCodes[kci]
-                    -- update visuel
-                    for ii, b_obj in ipairs(objs) do
-                        -- pas de ref directe facile, simple notification
-                    end
-                    blbl.Color = accentHi()
-                    btn.Color  = C.tabSel
-                    Utils.Log("Toggle key: "..kname)
-                end)
-            end
-
-            tabObjs[4] = objs
-        end
-
-        -- ── Tab 5 : Credits ──
-        do
-            local objs = {}
-            local sy = cy
-            table.insert(objs, tx(cx, sy,    "exe.hub",           accentHi(), 15, 4))
-            table.insert(objs, tx(cx, sy+22, "Script hub pour Roblox", C.muted, 11, 4))
-            table.insert(objs, tx(cx, sy+44, "Dev : mattheube",   C.white,    11, 4))
-            table.insert(objs, tx(cx, sy+60, "github.com/mattheube/EXE.HUB", C.muted, 10, 4))
-            tabObjs[5] = objs
-        end
-
-        -- ── Tab 6 : Logs ──
-        do
-            local objs = {}
-            local sy = cy
-            table.insert(objs, tx(cx, sy, "Logs / Updates", C.white, 11, 4))
-            sy = sy + 18
-            for i = math.max(1,#HubState.logs-8), #HubState.logs do
-                if HubState.logs[i] then
-                    table.insert(objs, tx(cx, sy, HubState.logs[i], C.muted, 10, 4))
-                    sy = sy + 14
-                end
-            end
-            tabObjs[6] = objs
-        end
-
-        -- ── glow animé (4 lignes = 4 bords) ──
-        -- on stocke des références pour les animer
-        glowLines[1] = ln(x,   y,   x+WW, y,      glow(), 1.5, 3)  -- top
-        glowLines[2] = ln(x+WW,y,   x+WW, y+WH,   glow(), 1.5, 3)  -- right
-        glowLines[3] = ln(x+WW,y+WH,x,    y+WH,   glow(), 1.5, 3)  -- bottom
-        glowLines[4] = ln(x,   y+WH,x,    y,      glow(), 1.5, 3)  -- left
-        for _, gl in ipairs(glowLines) do
-            table.insert(winObjs, gl)
-        end
-
-        -- affiche l'onglet actif
-        for i = 1, #TABS do
-            if tabObjs[i] then
-                for _, o in ipairs(tabObjs[i]) do
-                    table.insert(winObjs, o)
-                end
-                setVis(tabObjs[i], i == activeTab)
-            end
-        end
-    end
-
-    -- ─── glow animé ───────────────────────────────────────────
+    -- ── glow animé ───────────────────────────────────────────
     task.spawn(function()
         local t = 0
         while true do
             task.wait(0.05)
-            if not uiReady or not uiVisible then continue end
-            t = t + 0.07
-            -- pulsation de l'épaisseur et transparence
-            local pulse = 0.5 + 0.5 * math.sin(t)
-            local thick = 1 + pulse * 2.5
-            -- couleur qui tourne légèrement en teinte (on interpole entre accent et blanc)
-            local gc = glow()
-            for _, gl in ipairs(glowLines) do
+            if not uiReady then continue end
+            t = t + 0.08
+            local pulse = 0.5 + 0.5*math.sin(t)
+            local thick = 1 + pulse*2
+            local transp = 0.35 + 0.55*(1-pulse)
+            for _,gl in ipairs(glowLines) do
                 pcall(function()
-                    gl.Thickness = thick
-                    gl.Color = gc
-                    gl.Transparency = 0.4 + 0.5 * (1 - pulse)
+                    if gl.Visible then
+                        gl.Thickness    = thick
+                        gl.Transparency = transp
+                        gl.Color        = AC()
+                    end
                 end)
             end
         end
     end)
 
-    -- ─── pétales ──────────────────────────────────────────────
+    -- ── pétales ──────────────────────────────────────────────
+    local PMAX = 8
+    local petalCount = 0
+
     local function spawnPetal()
         if petalCount >= PMAX then return end
-        petalCount = petalCount + 1
-        local sz = math.random(3,7)
-        local px = WX + math.random(4, WW-4)
+        petalCount = petalCount+1
+        local sz = math.random(2,5)
+        local px = WX + math.random(sz, WW-sz)
         local p  = Drawing.new("Circle")
-        p.Position     = Vector2.new(px, WY - sz)
+        p.Position     = Vector2.new(px, WY+CONT_Y)
         p.Radius       = sz
-        p.Color        = C.petal
+        p.Color        = COL.petal
         p.Filled       = true
-        p.Transparency = math.random(35,65)/100
-        p.ZIndex       = 0
+        p.Transparency = math.random(40,70)/100
+        p.ZIndex       = 1
         p.Visible      = false
-        table.insert(allObjs, p)
+        table.insert(petalObjs, p)
 
-        local totalSteps = math.random(80,160)
-        local dy  = WH / totalSteps
-        local dx  = math.random(-20,20) / totalSteps
-        local dA  = (p.Transparency - 0.92) / totalSteps
+        local tgt = WY + WH
+        local steps = math.random(80,160)
+        local dy  = (tgt - (WY+CONT_Y)) / steps
+        local dx  = math.random(-15,15) / steps
+        local dA  = (p.Transparency - 0.95) / steps
 
         task.spawn(function()
-            for _ = 1, totalSteps do
+            for _ = 1, steps do
                 task.wait(0.05)
                 if not uiReady then break end
                 pcall(function()
-                    if uiVisible then p.Visible = true end
-                    p.Position     = Vector2.new(p.Position.X + dx, p.Position.Y + dy)
-                    p.Transparency = math.min(1, p.Transparency + dA)
+                    p.Visible      = uiVisible
+                    p.Position     = Vector2.new(p.Position.X+dx, p.Position.Y+dy)
+                    p.Transparency = math.min(1, p.Transparency+dA)
                 end)
             end
             pcall(function() p:Remove() end)
-            for i,a in ipairs(allObjs) do
-                if a==p then table.remove(allObjs,i) break end
+            for i,a in ipairs(petalObjs) do
+                if a==p then table.remove(petalObjs,i) break end
             end
-            petalCount = petalCount - 1
+            petalCount = petalCount-1
         end)
     end
 
-    -- ─── notifications ────────────────────────────────────────
+    -- ── notifications ────────────────────────────────────────
+    local NW,NH   = math.floor(SW/5.5), 58
+    local NX,NY0  = 12, 70
+    local NGAP    = 8
+    local NDUR    = 4.2
+
     local function reposNotifs()
-        for i, nd in ipairs(notifs) do
+        for i,nd in ipairs(notifList) do
             local ty = NY0 + (i-1)*(NH+NGAP)
             local diff = ty - nd.y
-            if diff ~= 0 then
-                for _, o in ipairs(nd.objs) do
+            if math.abs(diff) > 0.5 then
+                for _,o in ipairs(nd.objs) do
                     pcall(function()
-                        if o.Position then
+                        if rawget(o,"Position") then
                             o.Position = Vector2.new(o.Position.X, o.Position.Y+diff)
                         end
                     end)
@@ -607,56 +759,55 @@ do
         end
     end
 
-    local function notify(title, msg, acCol, icon)
+    local function notify(title, msg, col, icon)
         local nObjs = {}
         local nd = {objs=nObjs, y=NY0}
-        table.insert(notifs, nd)
+        table.insert(notifList, nd)
         reposNotifs()
 
-        local idx = #notifs
+        local idx = #notifList
         local nx  = SW - NW - NX
         local ny  = NY0 + (idx-1)*(NH+NGAP)
         nd.y = ny
 
         local function a(o) table.insert(nObjs,o) end
 
-        a(sq(nx, ny, NW, NH, C.notifBg, true,  1, 20))
-        a(sq(nx, ny, NW, NH, acCol,     false, 1.2, 21))
-        a(sq(nx+5, ny+5, 3, NH-10, acCol, true, 1, 21))
-        a(tx(nx+13, ny+NH/2-9, icon or "+", acCol, 14, 22))
-        a(tx(nx+28, ny+9, title, C.white, 12, 22))
-        a(tx(nx+28, ny+26, msg, C.muted, 11, 22))
+        a(Draw.Rect   (nx,    ny,    NW,   NH,    COL.notifBg, 20))
+        a(Draw.Outline(nx,    ny,    NW,   NH,    col,  1.2,   21))
+        a(Draw.Rect   (nx+5,  ny+6,  3,    NH-12, col,  21))
+        a(Draw.Text   (nx+14, ny+NH/2-8, icon or "+", col, 13, 22))
+        a(Draw.Text   (nx+28, ny+10, title, COL.white, 12, 22))
+        a(Draw.Text   (nx+28, ny+27, msg,   COL.muted, 10, 22))
 
-        setVis(nObjs, true)
+        Draw.SetVisible(nObjs, true)
 
         task.delay(NDUR, function()
-            -- slide vers la droite
-            local steps = 12
-            local startX = nx
-            for i = 1, steps do
-                task.wait(0.025)
-                local ox = startX + i*(NW+NX+20)/steps
-                for _, o in ipairs(nObjs) do
+            local steps, startX = 14, nx
+            for i=1,steps do
+                task.wait(0.022)
+                local ox = startX + i*(NW+NX+30)/steps
+                for _,o in ipairs(nObjs) do
                     pcall(function()
-                        if o.Position then
+                        if rawget(o,"Position") then
                             o.Position = Vector2.new(ox, o.Position.Y)
                         end
                     end)
                 end
             end
-            destroyGroup(nObjs)
-            for i2, n2 in ipairs(notifs) do
-                if n2 == nd then table.remove(notifs,i2) break end
+            Draw.Destroy(nObjs)
+            for i2,n2 in ipairs(notifList) do
+                if n2==nd then table.remove(notifList,i2) break end
             end
             reposNotifs()
         end)
     end
 
-    -- ─── API publique ─────────────────────────────────────────
+    -- ── API publique ─────────────────────────────────────────
     function UI.Init()
         task.spawn(function()
-            buildWin()
-            setVis(winObjs, true)
+            makeDefaultTabs()
+            buildWindow()
+            Draw.SetVisible(baseObjs, true)
             uiReady   = true
             uiVisible = true
             print("[EXE.HUB] UI.Init() OK")
@@ -665,113 +816,138 @@ do
             task.spawn(function()
                 while uiReady do
                     pcall(spawnPetal)
-                    task.wait(PFRQ + math.random(0,4))
+                    task.wait(6+math.random(0,4))
                 end
             end)
         end)
     end
 
+    -- file d'attente
     local _queue = {}
     UI._onReady = function()
         UI._onReady = nil
-        for _, fn in ipairs(_queue) do pcall(fn) end
+        for _,fn in ipairs(_queue) do pcall(fn) end
         _queue = {}
     end
     local function defer(fn)
-        if uiReady then pcall(fn)
-        else table.insert(_queue, fn) end
+        if uiReady then pcall(fn) else table.insert(_queue, fn) end
     end
 
-    -- Met à jour les labels dynamiques de la fenêtre
-    local function refreshDynLabels()
-        if lblGameName then pcall(function() lblGameName.Text = HubState.gameName  end) end
-        if lblGameVer  then pcall(function() lblGameVer.Text  = HubState.gameVersion end) end
-        -- met à jour aussi le tab Main si construit
-        if tabObjs[1] then
-            pcall(function()
-                -- index 4 = label nom jeu, index 6 = label version (selon buildWin)
-                if tabObjs[1][4] then tabObjs[1][4].Text = HubState.gameName    end
-                if tabObjs[1][6] then tabObjs[1][6].Text = HubState.gameVersion end
-            end)
-        end
-    end
+    -- ── chargement module jeu ────────────────────────────────
+    -- Appelé par le Loader quand le module est prêt.
+    -- gameModule peut fournir module.Tabs = { {name, buildFn}, ... }
+    function UI.LoadGameModule(gameModule)
+        defer(function()
+            dynGameName = gameModule.Name    or dynGameName
+            dynGameVer  = gameModule.Version or dynGameVer
+            refreshTitle()
+            addLog("Module charge : "..dynGameName.." "..dynGameVer)
 
-    local function addLog(msg)
-        table.insert(HubState.logs, msg)
-        if #HubState.logs > 50 then table.remove(HubState.logs,1) end
+            -- Construit les tabs : tabs jeu + Settings + Credits + Logs
+            local newTabs = {}
+            if gameModule.Tabs and #gameModule.Tabs > 0 then
+                for _,t in ipairs(gameModule.Tabs) do
+                    table.insert(newTabs, t)
+                end
+            else
+                -- tab Main par défaut si le module n'en fournit pas
+                table.insert(newTabs, {
+                    name = "Main",
+                    buildFn = function(ctx)
+                        local o,cx,cy = ctx.objs,ctx.cx,ctx.cy
+                        table.insert(o, Draw.Text(cx,cy,    "Statut", ctx.COL.muted, 10, 4))
+                        table.insert(o, Draw.Text(cx,cy+14, "Actif",  ctx.ACH(),    12, 4))
+                        table.insert(o, Draw.Text(cx,cy+38, dynGameName, ctx.COL.white, 12, 4))
+                        table.insert(o, Draw.Text(cx,cy+56, dynGameVer,  ctx.ACH(),    10, 4))
+                    end
+                })
+            end
+            -- Ajoute toujours Settings, Credits, Logs
+            for _,t in ipairs(currentTabs) do
+                if t.name=="Settings" or t.name=="Credits" or t.name=="Logs" then
+                    table.insert(newTabs, t)
+                end
+            end
+
+            -- Reconstruit la fenêtre avec les nouveaux tabs
+            activeTab = 1
+            currentTabs = newTabs
+
+            -- Nettoie les objets existants
+            Draw.SetVisible(baseObjs, false)
+            for _,o in ipairs(baseObjs) do pcall(function() o:Remove() end) end
+            table.clear(baseObjs)
+            table.clear(glowLines)
+            table.clear(tabBtnObjs)
+            for _,objs in pairs(tabObjs) do
+                for _,o in ipairs(objs) do pcall(function() o:Remove() end) end
+            end
+            table.clear(tabObjs)
+            clearZones()
+
+            buildWindow()
+            Draw.SetVisible(baseObjs, uiVisible)
+        end)
     end
 
     function UI.ShowWelcome()
         defer(function()
-            notify("Bienvenue", "exe.hub est actif", accent(), "+")
+            notify("Bienvenue", "EXE.HUB est actif", AC(), "+")
             addLog("Hub demarre")
         end)
     end
 
     function UI.ShowGameDetected(n, ver)
-        HubState.gameName    = n   or "—"
-        HubState.gameVersion = ver or "—"
+        dynGameName = n   or "—"
+        dynGameVer  = ver or "—"
         defer(function()
-            refreshDynLabels()
-            notify("Jeu detecte", n, C.green, ">")
-            addLog("Jeu : "..n)
+            refreshTitle()
+            notify("Jeu detecte", n, COL.green, ">")
+            addLog("Jeu detecte : "..n.." "..(ver or ""))
         end)
     end
 
     function UI.ShowGameLoaded(n, ver)
-        HubState.gameName    = n   or HubState.gameName
-        HubState.gameVersion = ver or HubState.gameVersion
+        dynGameName = n   or dynGameName
+        dynGameVer  = ver or dynGameVer
         defer(function()
-            refreshDynLabels()
-            notify("Module charge", n.." "..HubState.gameVersion.." pret", C.green, "v")
-            -- met à jour le statut tab Main
-            if tabObjs[1] and tabObjs[1][2] then
-                pcall(function() tabObjs[1][2].Text = "Actif" end)
-            end
-            addLog("Module charge : "..n.." "..HubState.gameVersion)
+            refreshTitle()
+            notify("Module charge", n.." "..(ver or "").." pret", COL.green, "v")
         end)
     end
 
     function UI.ShowNotSupported(id)
         defer(function()
-            notify("Non supporte", "PlaceId: "..tostring(id), C.yellow, "!")
-            addLog("Jeu non supporte : "..tostring(id))
+            notify("Non supporte", "PlaceId: "..tostring(id), COL.yellow, "!")
+            addLog("Non supporte : "..tostring(id))
         end)
     end
 
     function UI.ShowLoadError(n)
         defer(function()
-            notify("Erreur", tostring(n), C.red, "x")
+            notify("Erreur", tostring(n), COL.red, "x")
             addLog("Erreur : "..tostring(n))
         end)
     end
 
     function UI.Notify(title, msg, t)
         defer(function()
-            local a, i = accent(), "+"
-            if     t=="success" then a=C.green  i="v"
-            elseif t=="warning" then a=C.yellow i="!"
-            elseif t=="error"   then a=C.red    i="x" end
-            notify(title, msg, a, i)
-        end)
-    end
-
-    function UI.SetStatus(s)
-        defer(function()
-            if tabObjs[1] and tabObjs[1][2] then
-                pcall(function() tabObjs[1][2].Text = tostring(s) end)
-            end
+            local c,i = AC(),"+"
+            if t=="success" then c=COL.green  i="v"
+            elseif t=="warning" then c=COL.yellow i="!"
+            elseif t=="error"   then c=COL.red    i="x" end
+            notify(title, msg, c, i)
         end)
     end
 
     function UI.Destroy()
         uiReady = false
-        table.clear(clickZones)
-        for _, o in ipairs(allObjs) do pcall(function() o:Remove() end) end
-        table.clear(allObjs)
-        table.clear(winObjs)
-        table.clear(notifs)
+        Draw.DestroyAll()
+        table.clear(baseObjs)
         table.clear(glowLines)
+        table.clear(notifList)
+        table.clear(petalObjs)
+        table.clear(zones)
     end
 end
 print("[EXE.HUB] ui OK")
@@ -781,23 +957,33 @@ print("[EXE.HUB] ui OK")
 -- ============================================================
 local Loader = {}
 do
-    function Loader.LoadGame(gameInfo, loadModule, ui, utils)
+    function Loader.LoadGame(gameInfo, loadModuleFn, ui, utils)
         if not gameInfo or not gameInfo.module then
             utils.Error("gameInfo invalide") return
         end
         utils.Log("Chargement : "..gameInfo.module)
-        local gm = loadModule(gameInfo.module)
+        ui.ShowGameDetected(gameInfo.name, gameInfo.version)
+
+        local gm = loadModuleFn(gameInfo.module)
         if not gm then ui.ShowLoadError(gameInfo.name) return end
-        if type(gm.Init) ~= "function" then
-            ui.ShowLoadError(gameInfo.name.." (Init manquant)") return
+
+        -- Le module peut setter ses propres Name/Version/Tabs
+        gm.Name    = gm.Name    or gameInfo.name
+        gm.Version = gm.Version or gameInfo.version
+
+        -- Init du module (lui passe l'API)
+        if type(gm.Init) == "function" then
+            local ok, err = pcall(function() gm.Init({UI=ui, Utils=utils}) end)
+            if not ok then
+                ui.ShowLoadError(gameInfo.name)
+                utils.Error(tostring(err))
+                return
+            end
         end
-        local ok, err = pcall(function() gm.Init({UI=ui, Utils=utils}) end)
-        if ok then
-            ui.ShowGameLoaded(gameInfo.name, gameInfo.version)
-        else
-            ui.ShowLoadError(gameInfo.name)
-            utils.Error(tostring(err))
-        end
+
+        -- Reconstruit l'UI avec les tabs du module
+        ui.ShowGameLoaded(gm.Name, gm.Version)
+        ui.LoadGameModule(gm)
     end
 end
 print("[EXE.HUB] loader OK")
@@ -842,13 +1028,12 @@ print("[EXE.HUB] Tous les modules prets.")
 UI.Init()
 UI.ShowWelcome()
 
-local placeId  = game.PlaceId
+local placeId = game.PlaceId
 print("[EXE.HUB] PlaceId = "..tostring(placeId))
 
 local gameInfo = Registry.GetGame(placeId)
 if gameInfo then
     print("[EXE.HUB] Jeu reconnu : "..gameInfo.name)
-    UI.ShowGameDetected(gameInfo.name, gameInfo.version)
     Loader.LoadGame(gameInfo, loadModule, UI, Utils)
 else
     print("[EXE.HUB] Jeu non supporte : "..tostring(placeId))
