@@ -139,41 +139,27 @@ do
     local mouse = Players.LocalPlayer:GetMouse()
     local function MX() return mouse.X end
     local function MY() return mouse.Y end
-    -- ismouse1pressed() retourne DEUX valeurs sur Matcha.
-    -- (ismouse1pressed()) avec parenthèses ne garde que la première.
+
+    -- LMB : polling ismouse1pressed() chaque frame, detection front montant
     local function LMB() return (ismouse1pressed()) end
 
-    -- ── INPUT via InputBegan (Matcha) ────────────────────────
-    -- Sur Matcha, InputBegan fire pour TOUT : clics souris ET touches.
-    -- KeyCode=34 → LMB click
-    -- Keycodes lettres (confirmés par debug) :
-    --   H=8, J=10, K=11, L=12, P=16
-    -- Le toggle clé est détecté via InputBegan (edge-triggered, pas polling).
-    local MATCHA_LMB = 34  -- LMB = KeyCode 34 dans InputBegan
+    -- TOGGLE KEY : vrai UIS Roblox via game:GetService (pas le mock global)
+    local RealUIS = game:GetService("UserInputService")
 
     local TOGGLE_OPTIONS = {
-        {label="H", mc=8 },
-        {label="J", mc=10},
-        {label="K", mc=11},
-        {label="L", mc=12},
-        {label="P", mc=16},
+        {label="H", kc=Enum.KeyCode.H},
+        {label="J", kc=Enum.KeyCode.J},
+        {label="K", kc=Enum.KeyCode.K},
+        {label="L", kc=Enum.KeyCode.L},
+        {label="P", kc=Enum.KeyCode.P},
     }
     local toggleIdx = 1
-    local function getToggleMC() return TOGGLE_OPTIONS[toggleIdx].mc end
-
-    -- État partagé mis à jour par InputBegan
-    local lmbJustPressed  = false  -- true pendant 1 frame après clic
-    local toggleJustFired = false  -- true pendant 1 frame après toggle key
-
-    local UIS = UserInputService
-    UIS.InputBegan:Connect(function(inp)
-        local kc = inp.KeyCode
-        if kc == MATCHA_LMB then
-            lmbJustPressed = true
-        elseif kc == getToggleMC() then
-            toggleJustFired = true
-        end
-    end)
+    local function isToggleDown()
+        local ok,r = pcall(function()
+            return RealUIS:IsKeyDown(TOGGLE_OPTIONS[toggleIdx].kc)
+        end)
+        return ok and r or false
+    end
 
     -- ── thème HSV ────────────────────────────────────────────
     local accentH,accentS,accentV = 330/360, 0.65, 0.95  -- sakura
@@ -662,22 +648,25 @@ do
     end
 
     -- ── INPUT LOOP ───────────────────────────────────────────
-    -- InputBegan (Matcha) détecte LMB (kc=34) et touche toggle.
-    -- Heartbeat gère le drag continu via ismouse1pressed() polling.
+    -- LMB  : polling ismouse1pressed() + detection front montant (prevLMB)
+    -- Drag : continu tant que LMB maintenu
+    -- Click: front montant LMB → hitTest ou début drag
+    -- Toggle: polling RealUIS:IsKeyDown + front montant (prevToggle)
     do
+        local prevLMB    = false
+        local prevToggle = false
         local dragActive = false
-        local dragOX,dragOY = 0,0
-        local targetWX,targetWY = WX,WY
+        local dragOX, dragOY = 0, 0
+        local targetWX, targetWY = WX, WY
 
-        -- Toggle : géré dans InputBegan (edge-triggered)
-        -- lmbJustPressed : consommé ici chaque frame
         RunService.Heartbeat:Connect(function()
             if not uiReady then return end
-            local mx,my = MX(),MY()
+            local mx, my = MX(), MY()
+            local lmb     = LMB()
+            local toggleDown = isToggleDown()
 
-            -- ── toggle key (InputBegan edge) ─────────────
-            if toggleJustFired then
-                toggleJustFired = false
+            -- ── toggle (front montant) ──────────────────
+            if toggleDown and not prevToggle then
                 uiVisible = not uiVisible
                 Draw.SetVisible(baseObjs, uiVisible)
                 Draw.SetVisible(pickerObjs, uiVisible and pickerActive)
@@ -685,11 +674,11 @@ do
                     pcall(function() p.Visible = uiVisible end)
                 end
             end
+            prevToggle = toggleDown
 
-            -- ── drag continu (polling LMB) ────────────────
-            local lmbDown = LMB()
+            -- ── drag continu ────────────────────────────
             if dragActive then
-                if lmbDown then
+                if lmb then
                     targetWX = mx - dragOX
                     targetWY = my - dragOY
                     local dx = math.floor((targetWX - WX) * 0.45)
@@ -709,10 +698,8 @@ do
                 end
             end
 
-            -- ── click (InputBegan edge, kc=34) ────────────
-            if lmbJustPressed and uiVisible then
-                lmbJustPressed = false
-                -- titre = drag
+            -- ── click (front montant LMB) ───────────────
+            if lmb and not prevLMB and uiVisible then
                 if mx >= WX and mx <= WX+WW and my >= WY and my <= WY+TH then
                     dragActive = true
                     dragOX = mx - WX
@@ -722,13 +709,13 @@ do
                 else
                     hitTest(mx, my)
                 end
-            else
-                lmbJustPressed = false  -- consommer même si UI cachée
             end
+
+            prevLMB = lmb
         end)
     end
 
-    -- ── GLOW ANIMATION (identique v2.3) ──────────────────────
+        -- ── GLOW ANIMATION (identique v2.3) ──────────────────────
     task.spawn(function()
         local t=0
         RunService.Heartbeat:Connect(function(dt)
