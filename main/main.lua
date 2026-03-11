@@ -652,20 +652,21 @@ do
     -- Drag : continu tant que LMB maintenu
     -- Click: front montant LMB → hitTest ou début drag
     -- Toggle: polling RealUIS:IsKeyDown + front montant (prevToggle)
-    do
+    task.spawn(function()
         local prevLMB    = false
         local prevToggle = false
         local dragActive = false
         local dragOX, dragOY = 0, 0
         local targetWX, targetWY = WX, WY
 
-        RunService.Heartbeat:Connect(function()
-            if not uiReady then return end
+        while true do
+            task.wait(0.033) -- ~30fps, fiable sur Matcha
+            if not uiReady then continue end
             local mx, my = MX(), MY()
-            local lmb     = LMB()
+            local lmb        = LMB()
             local toggleDown = isToggleDown()
 
-            -- ── toggle (front montant) ──────────────────
+            -- toggle (front montant)
             if toggleDown and not prevToggle then
                 uiVisible = not uiVisible
                 Draw.SetVisible(baseObjs, uiVisible)
@@ -676,13 +677,13 @@ do
             end
             prevToggle = toggleDown
 
-            -- ── drag continu ────────────────────────────
+            -- drag continu
             if dragActive then
                 if lmb then
                     targetWX = mx - dragOX
                     targetWY = my - dragOY
-                    local dx = math.floor((targetWX - WX) * 0.45)
-                    local dy = math.floor((targetWY - WY) * 0.45)
+                    local dx = math.floor((targetWX - WX) * 0.6)
+                    local dy = math.floor((targetWY - WY) * 0.6)
                     if math.abs(dx) + math.abs(dy) > 0 then
                         WX = WX + dx
                         WY = WY + dy
@@ -698,7 +699,7 @@ do
                 end
             end
 
-            -- ── click (front montant LMB) ───────────────
+            -- click (front montant LMB)
             if lmb and not prevLMB and uiVisible then
                 if mx >= WX and mx <= WX+WW and my >= WY and my <= WY+TH then
                     dragActive = true
@@ -712,15 +713,16 @@ do
             end
 
             prevLMB = lmb
-        end)
-    end
+        end
+    end)
 
         -- ── GLOW ANIMATION (identique v2.3) ──────────────────────
     task.spawn(function()
         local t=0
-        RunService.Heartbeat:Connect(function(dt)
-            if not uiReady or not uiVisible then return end
-            t=t+(dt*1.8)
+        while true do
+            task.wait(0.05)
+            if not uiReady or not uiVisible then continue end
+            t=t+0.09
             local pulse=0.5+0.5*math.sin(t)
             local thick=1+pulse*2.5
             local transp=0.25+0.7*(1-pulse)
@@ -728,7 +730,7 @@ do
             for _,gl in ipairs(glowLines) do pcall(function()
                 gl.Thickness=thick gl.Transparency=transp gl.Color=col
             end) end
-        end)
+        end
     end)
 
     -- ── PETALS [FIX-4] couleur suit petalColor() live ────────
