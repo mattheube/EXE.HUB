@@ -870,7 +870,8 @@ do
             ny=ctx.dropdown(npC.cx,ny,npC.cw,"tp_npc",{"Main NPC","Raid NPC"},"Choose")
             ny=ctx.button(npC.cx,ny,npC.cw,"Teleport to NPC",function()
                 local idx=fToggles["tp_npc_sel"] or 1
-                print("[TP] NPC -> "..tostring({"Main NPC","Raid NPC"}[idx]))
+                local _npcList={"Main NPC","Raid NPC"}
+                print("[TP] NPC -> "..tostring(_npcList[idx]))
             end)
             npC.finalize(ny)
         end}
