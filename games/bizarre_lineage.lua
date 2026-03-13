@@ -110,7 +110,6 @@ local function teleportTo(name)
             char.HumanoidRootPart.CFrame=CFrame.new(pos)
         end
     else
-        -- Coordinates not yet filled in — notify when live
         print("[EXE] TP target '"..tostring(name).."' coords TBA")
     end
 end
@@ -153,16 +152,12 @@ task.spawn(function()
             local offsetY=fT["farmOffY_val"] or 0
             local ty=best.Position.Y + (method=="Above" and (3+offsetY) or (-3-offsetY))
 
-            -- Teleport
             hrp.CFrame=CFrame.new(best.Position.X, ty, best.Position.Z)
             task.wait(0.05)
 
-            -- Activate stand
             if FT("farmActivateStand") then
                 pcall(function()
-                    local vgui=game:GetService("VirtualInputManager") or game:GetService("UserInputService")
-                    -- Trigger E key (stand activation in most JoJo games)
-                    fireproximityprompt=fireproximityprompt or function() end
+                    -- Stand activation trigger (game-specific — hook here)
                 end)
             end
         end
@@ -176,9 +171,8 @@ task.spawn(function()
     while true do
         task.wait(0.5)
         if not FT("autoMeditate") then continue end
-        -- Meditation logic placeholder — trigger meditate action when available
         pcall(function()
-            -- game-specific meditate trigger goes here
+            -- Meditate trigger (game-specific — hook here)
         end)
     end
 end)
@@ -318,7 +312,7 @@ local function buildMain(ctx)
     local h2=math.floor((cw-6)/2)
     local sy=cy
 
-    -- ┌─ AUTO FARM MOB ─────────────────────────────────────────┐
+    -- ┌─ AUTO FARM MOB ────────────────── (left column) ────────┐
     local af=ctx.Card(cx,sy,h2,"AUTO FARM MOB")
     local ay=af.cy
 
@@ -326,7 +320,7 @@ local function buildMain(ctx)
     ay=ctx.Dropdown(af.cx,ay,af.cw,"mob_sel",D.MOBS,"All Mobs")
     ay=ay+3
 
-    -- Enable checkbox (master toggle)
+    -- Master toggle checkbox
     ay=ctx.Checkbox(af.cx,ay,"farmActive","Enable Farm")
     ay=ctx.Checkbox(af.cx,ay,"farmActivateStand","Auto Activate Stand")
     ay=ctx.Checkbox(af.cx,ay,"farmKillStand","Auto Kill Stand")
@@ -337,56 +331,69 @@ local function buildMain(ctx)
     ay=ctx.Slider(af.cx,ay,af.cw,"farmOffY","Offset Y",-50,50,0)
 
     local afEnd=af.finalize(ay)
-    sy=afEnd+8
 
-    -- ┌─ AUTO MEDITATE ─────────────────────────────────────────┐
+    -- ┌─ AUTO MEDITATE ─────────────────── (right column) ──────┐
     local md=ctx.Card(cx+h2+6,af.by,h2,"AUTO MEDITATE")
     local my=md.cy
     my=ctx.Label(md.cx,my,"Meditate automatically.")
     my=ctx.Checkbox(md.cx,my,"autoMeditate","Auto Meditate")
     local mdEnd=md.finalize(my)
-    sy=math.max(sy,mdEnd+8)
+
+    -- Advance sy past both columns
+    sy=math.max(afEnd,mdEnd)+8
+
+    -- ┌─ STATUS ────────────────────────────────────────────────┐
+    -- Status is shown first, ESP is placed below it (per spec)
+    local stc=ctx.Card(cx,sy,cw,"STATUS")
+    local sty=stc.cy
+    o[#o+1]=D2.Text(stc.cx,sty,"Game :",pal.muted,10,6)
+    o[#o+1]=D2.Text(stc.cx+44,sty,ctx.dynName(),Color3.fromRGB(232,226,248),11,6)
+    sty=sty+16
+    o[#o+1]=D2.Text(stc.cx,sty,"Version :",pal.muted,10,6)
+    o[#o+1]=D2.Text(stc.cx+52,sty,ctx.dynVer(),Color3.fromRGB(232,226,248),11,6)
+    sy=stc.finalize(sty+8)+8
 
     -- ┌─ ESP ────────────────────────────────────────────────────┐
+    -- ESP is placed below Status (per spec: "under the Status box")
     local ec=ctx.Card(cx,sy,cw,"ESP")
     local ey=ec.cy
     local c3=math.floor((ec.cw-8)/3)
 
-    -- Mob ESP column
+    -- ── Mob ESP column ────────────────────────────────────────
     o[#o+1]=D2.Text(ec.cx,ey,"MOB ESP",pal.label,9,6)
     local em=ey+12
     em=ctx.Checkbox(ec.cx,em,"espMobOn","Enable")
     em=ctx.ColorSwatch(ec.cx,em,"Mob Color",ESPMobColorRef)
 
-    -- Player ESP column
+    -- ── Player ESP column ─────────────────────────────────────
     local pcx=ec.cx+c3+4
     o[#o+1]=D2.Text(pcx,ey,"PLAYER ESP",pal.label,9,6)
     local ep=ey+12
-    -- Directly call widget helpers since we need raw access
     do
-        local objs,zFn=o,ctx.Zone
+        -- Inline checkbox (player column x-position)
+        local zFn=ctx.Zone
         local SZ=13; local key="espPlayerOn"; local label="Enable"
         local on=FT(key)
-        objs[#objs+1]=D2.Rect(pcx,ep,SZ,SZ,pal.chkBg,7)
-        objs[#objs+1]=D2.Outline(pcx,ep,SZ,SZ,pal.cardBrd,1,8)
-        local fill=D2.Rect(pcx+1,ep+1,SZ-2,SZ-2,ctx.AC(),7); fill.Visible=on; objs[#objs+1]=fill
+        o[#o+1]=D2.Rect(pcx,ep,SZ,SZ,pal.chkBg,7)
+        o[#o+1]=D2.Outline(pcx,ep,SZ,SZ,pal.cardBrd,1,8)
+        local fill=D2.Rect(pcx+1,ep+1,SZ-2,SZ-2,ctx.AC(),7); fill.Visible=on; o[#o+1]=fill
         local t1=D2.Line(pcx+2,ep+6,pcx+5,ep+10,Color3.fromRGB(255,255,255),2,9)
         local t2=D2.Line(pcx+5,ep+10,pcx+11,ep+3,Color3.fromRGB(255,255,255),2,9)
-        t1.Visible=on; t2.Visible=on; objs[#objs+1]=t1; objs[#objs+1]=t2
-        objs[#objs+1]=D2.Text(pcx+SZ+5,ep+1,label,Color3.fromRGB(228,222,245),11,7)
+        t1.Visible=on; t2.Visible=on; o[#o+1]=t1; o[#o+1]=t2
+        o[#o+1]=D2.Text(pcx+SZ+5,ep+1,label,Color3.fromRGB(232,226,248),11,7)
         zFn(pcx,ep,SZ+6+80,SZ+2,function()
             local v=not FT(key); setFT(key,v)
             pcall(function() fill.Visible=v; fill.Color=ctx.AC(); t1.Visible=v; t2.Visible=v end)
         end)
         ep=ep+SZ+7
     end
-    -- player color swatch
     do
-        local objs,zFn=o,ctx.Zone
-        local SW2,SH2=20,13; local label="Player Color"; local colorRef=ESPPlayerColorRef
-        local swatch=D2.Rect(pcx,ep,SW2,SH2,colorRef[1],7); objs[#objs+1]=swatch
-        objs[#objs+1]=D2.Outline(pcx,ep,SW2,SH2,pal.cardBrd,1,8)
-        objs[#objs+1]=D2.Text(pcx+SW2+5,ep+2,label,pal.muted,9,7)
+        -- Player color swatch (inline)
+        local zFn=ctx.Zone
+        local SW2,SH2=20,13; local colorRef=ESPPlayerColorRef
+        local swatch=D2.Rect(pcx,ep,SW2,SH2,colorRef[1],7); o[#o+1]=swatch
+        o[#o+1]=D2.Outline(pcx,ep,SW2,SH2,pal.cardBrd,1,8)
+        o[#o+1]=D2.Text(pcx+SW2+5,ep+2,"Player Color",pal.muted,9,7)
         local ci=1; local CP=ctx.COLOR_PRESETS
         zFn(pcx,ep,SW2+5+80,SH2,function()
             ci=ci%#CP+1; ESPPlayerColorRef[1]=CP[ci]
@@ -395,29 +402,29 @@ local function buildMain(ctx)
         ep=ep+SH2+5
     end
 
-    -- Item ESP column
+    -- ── Item ESP column ───────────────────────────────────────
     local icx=ec.cx+c3*2+8
     o[#o+1]=D2.Text(icx,ey,"ITEM ESP",pal.label,9,6)
     local ei=ey+12
-    -- Enable checkbox
     do
-        local objs,zFn=o,ctx.Zone
+        -- Item ESP master enable checkbox (inline)
+        local zFn=ctx.Zone
         local SZ=13; local key="espItemOn"; local label="Enable"
         local on=FT(key)
-        objs[#objs+1]=D2.Rect(icx,ei,SZ,SZ,pal.chkBg,7)
-        objs[#objs+1]=D2.Outline(icx,ei,SZ,SZ,pal.cardBrd,1,8)
-        local fill=D2.Rect(icx+1,ei+1,SZ-2,SZ-2,ctx.AC(),7); fill.Visible=on; objs[#objs+1]=fill
+        o[#o+1]=D2.Rect(icx,ei,SZ,SZ,pal.chkBg,7)
+        o[#o+1]=D2.Outline(icx,ei,SZ,SZ,pal.cardBrd,1,8)
+        local fill=D2.Rect(icx+1,ei+1,SZ-2,SZ-2,ctx.AC(),7); fill.Visible=on; o[#o+1]=fill
         local t1=D2.Line(icx+2,ei+6,icx+5,ei+10,Color3.fromRGB(255,255,255),2,9)
         local t2=D2.Line(icx+5,ei+10,icx+11,ei+3,Color3.fromRGB(255,255,255),2,9)
-        t1.Visible=on; t2.Visible=on; objs[#objs+1]=t1; objs[#objs+1]=t2
-        objs[#objs+1]=D2.Text(icx+SZ+5,ei+1,label,Color3.fromRGB(228,222,245),11,7)
+        t1.Visible=on; t2.Visible=on; o[#o+1]=t1; o[#o+1]=t2
+        o[#o+1]=D2.Text(icx+SZ+5,ei+1,label,Color3.fromRGB(232,226,248),11,7)
         zFn(icx,ei,SZ+6+80,SZ+2,function()
             local v=not FT(key); setFT(key,v)
             pcall(function() fill.Visible=v; fill.Color=ctx.AC(); t1.Visible=v; t2.Visible=v end)
         end)
         ei=ei+SZ+7
     end
-    -- Per-item colour swatches
+    -- Per-item colour swatches — each item keeps its own colour
     for _,item in ipairs(D.ESP_ITEMS) do
         local ref=ESPItemColors[item]
         local short=item:match("^(.-)%s") or item:sub(1,9)
@@ -433,18 +440,9 @@ local function buildMain(ctx)
         ei=ei+SH2+4
     end
 
+    -- Finalize ESP card using the tallest column
     local eyAll=math.max(em,ep,ei)
-    ec.finalize(eyAll); sy=eyAll+10
-
-    -- ┌─ STATUS ────────────────────────────────────────────────┐
-    local stc=ctx.Card(cx,sy,cw,"STATUS")
-    local sty=stc.cy
-    o[#o+1]=D2.Text(stc.cx,sty,"Game :",pal.muted,10,6)
-    o[#o+1]=D2.Text(stc.cx+44,sty,ctx.dynName(),Color3.fromRGB(228,222,245),11,6)
-    sty=sty+16
-    o[#o+1]=D2.Text(stc.cx,sty,"Version :",pal.muted,10,6)
-    o[#o+1]=D2.Text(stc.cx+52,sty,ctx.dynVer(),Color3.fromRGB(228,222,245),11,6)
-    stc.finalize(sty+8)
+    ec.finalize(eyAll)
 end
 
 -- ── TAB: ITEMS ────────────────────────────────────────────────
@@ -466,6 +464,7 @@ local function buildItems(ctx)
     sy=isc.finalize(iy)+8
 
     -- ┌─ AUTO COLLECT ITEM ─────────────────────────────────────┐
+    -- Only ground-spawn collectibles are listed here
     local acc=ctx.Card(cx,sy,cw,"AUTO COLLECT ITEM")
     local ay=acc.cy
     ay=ctx.Label(acc.cx,ay,"Teleports to world items and collects them.")
@@ -494,19 +493,19 @@ local function buildItems(ctx)
     uy=ctx.Checkbox(auc.cx,uy,"arrowStopSkin","Stop when Stand Skin obtained")
     uy=uy+4
 
-    -- Stat filter
+    -- Stat filter row
     uy=ctx.Label(auc.cx,uy,"Stop when Stand stats >=")
     local sw3=math.floor((auc.cw-8)/3)
 
-    o[#o+1]=D2.Text(auc.cx,         uy,"STR",  pal.muted,8,6)
-    o[#o+1]=D2.Text(auc.cx+sw3+4,  uy,"SPD",  pal.muted,8,6)
-    o[#o+1]=D2.Text(auc.cx+sw3*2+8,uy,"SPEC", pal.muted,8,6)
+    o[#o+1]=D2.Text(auc.cx,          uy,"STR",  pal.muted,8,6)
+    o[#o+1]=D2.Text(auc.cx+sw3+4,   uy,"SPD",  pal.muted,8,6)
+    o[#o+1]=D2.Text(auc.cx+sw3*2+8, uy,"SPEC", pal.muted,8,6)
     uy=uy+11
 
     local rowY=uy
-    uy=ctx.Dropdown(auc.cx,         rowY,sw3,"req_str", D.STAT_RANKS,"D")
-    ctx.Dropdown(auc.cx+sw3+4,      rowY,sw3,"req_spd", D.STAT_RANKS,"D")
-    ctx.Dropdown(auc.cx+sw3*2+8,    rowY,sw3,"req_spec",D.STAT_RANKS,"D")
+    uy=ctx.Dropdown(auc.cx,          rowY,sw3,"req_str", D.STAT_RANKS,"D")
+    ctx.Dropdown(auc.cx+sw3+4,       rowY,sw3,"req_spd", D.STAT_RANKS,"D")
+    ctx.Dropdown(auc.cx+sw3*2+8,     rowY,sw3,"req_spec",D.STAT_RANKS,"D")
     uy=uy+5
 
     uy=ctx.Label(auc.cx,uy,"Search Personality :")
@@ -561,10 +560,11 @@ local function buildTeleport(ctx)
     sy=msC.finalize(my)+8
 
     -- ┌─ NPC TELEPORT ──────────────────────────────────────────┐
+    -- NPCs are separated by category — not a flat list
     local npC=ctx.Card(cx,sy,cw,"NPC TELEPORT")
     local ny=npC.cy
 
-    -- Helper to build one NPC category section
+    -- Helper: build one NPC category section with dropdown + teleport button
     local function npcSection(key,items,sectionLabel)
         ny=ctx.Section(npC.cx,ny,npC.cw,sectionLabel)
         ny=ctx.Dropdown(npC.cx,ny,npC.cw,"tp_"..key,items,"Select NPC")
@@ -586,12 +586,10 @@ end
 
 -- ══════════════════════════════════════════════════════════════════
 -- MODULE INIT  — called by main.lua with {UI, log, err}
--- Returns BL which has .Tabs injected into UI.LoadGameModule
 -- ══════════════════════════════════════════════════════════════════
 function BL.Init(api)
-    -- store api refs locally if needed
-    local UI2=api.UI
-    -- no async work needed at Init time
+    -- Store API refs locally if needed for future async hooks
+    local _UI=api.UI
 end
 
 -- Tabs injected when UI.LoadGameModule(BL) is called

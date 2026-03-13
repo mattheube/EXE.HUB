@@ -1,11 +1,11 @@
 -- ╔══════════════════════════════════════════════════════════════╗
--- ║   EXE.HUB  v8.0  —  main.lua  (Matcha / Drawing API only)  ║
+-- ║   EXE.HUB  v8.1  —  main.lua  (Matcha / Drawing API only)  ║
 -- ║   Shared framework only — NO game-specific content here     ║
 -- ╚══════════════════════════════════════════════════════════════╝
 -- Engine  : task.spawn + task.wait  (RunService dead on Matcha)
 -- Input   : ismouse1pressed() for LMB | RealUIS:IsKeyDown() keys
 -- Toggle  : default P (rebindable — letters/numbers/F-keys/etc.)
--- Creator : MATTHEUBE  |  github.com/mattheube/EXE.HUB
+-- Creator : MATHUBE  |  github.com/mattheube/EXE.HUB
 
 local BASE    = "https://raw.githubusercontent.com/mattheube/EXE.HUB/main/"
 local RealUIS = game:GetService("UserInputService")
@@ -189,7 +189,7 @@ do
         curTheme=key; acH,acS,acV=t.acH,t.acS,t.acV
     end
 
-    -- Palette — improved text colours for readability
+    -- Palette — high-contrast text colours for readability
     local function PAL()
         local t=TH()
         return {
@@ -201,10 +201,10 @@ do
             cardBg    =t.cardBg,
             cardBrd   =t.cardBrd,
             cardTitle =t.cardTitle,
-            -- Text — higher contrast for legibility inside boxes
-            white  =Color3.fromRGB(238,234,252),  -- main text
-            label  =Color3.fromRGB(200,185,225),  -- secondary labels
-            muted  =Color3.fromRGB(155,130,175),  -- hints/dim
+            -- Text colours — legible inside dark cards
+            white  =Color3.fromRGB(242,238,255),  -- main text (slightly warmer)
+            label  =Color3.fromRGB(205,192,230),  -- secondary labels
+            muted  =Color3.fromRGB(160,138,182),  -- hints/dim
             dimmed =Color3.fromRGB(72,58,90),
             green  =Color3.fromRGB(68,200,110),
             yellow =Color3.fromRGB(228,178,48),
@@ -346,7 +346,7 @@ do
     local function Card(objs,zFn,bx,by,bw,title)
         local pal=PAL(); local CP=7; local TBH=18
         local bg=Draw.Rect(bx,by,bw,0,pal.cardBg,4); objs[#objs+1]=bg
-        -- 4 separate border lines updated in finalize
+        -- 4 separate border lines — complete box, no missing sides
         local lT=Draw.Line(bx,by,bx+bw,by,pal.cardBrd,1,6);       objs[#objs+1]=lT
         local lB=Draw.Line(bx,by,bx+bw,by,pal.cardBrd,1,6);       objs[#objs+1]=lB
         local lL=Draw.Line(bx,by,bx,by,pal.cardBrd,1,6);           objs[#objs+1]=lL
@@ -357,7 +357,7 @@ do
         cardLeds[#cardLeds+1]={dot=cled,x=bx,y=by,w=bw,h=0,phase=math.random()*6.28}
         -- title bar fill
         local tbg=Draw.Rect(bx,by,bw,TBH,pal.cardTitle,5); objs[#objs+1]=tbg
-        -- title text — bright white for readability
+        -- title text — bright white for maximum readability
         objs[#objs+1]=Draw.Text(bx+CP,by+4,title,Color3.fromRGB(248,240,255),11,6)
         local cledRef=cled
         return {
@@ -382,19 +382,21 @@ do
     -- ── SECTION DIVIDER ──────────────────────────────────────
     local function Section(objs,cx,y,cw,label)
         local pal=PAL()
-        objs[#objs+1]=Draw.Text(cx,y,"[ "..label.." ]",pal.label,10,6)
+        -- Bright label for readability inside cards
+        objs[#objs+1]=Draw.Text(cx,y,"[ "..label.." ]",Color3.fromRGB(210,195,235),10,6)
         objs[#objs+1]=Draw.Line(cx,y+14,cx+cw,y+14,pal.border,1,5)
         return y+20
     end
 
     -- ── LABEL ────────────────────────────────────────────────
     local function Label(objs,cx,y,text,col)
-        objs[#objs+1]=Draw.Text(cx,y,text,col or PAL().muted,9,6)
+        -- Default to a lighter muted colour for better legibility inside boxes
+        objs[#objs+1]=Draw.Text(cx,y,text,col or Color3.fromRGB(165,145,188),9,6)
         return y+13
     end
 
     -- ── CHECKBOX (empty=off, filled+tick=on) ─────────────────
-    -- Improved: larger hit area, bright white label for readability
+    -- Bright white label ensures readability inside dark card backgrounds
     local function Checkbox(objs,zFn,cx,y,key,label)
         local pal=PAL(); local SZ=13; local on=FT(key)
         objs[#objs+1]=Draw.Rect(cx,y,SZ,SZ,pal.chkBg,7)
@@ -404,8 +406,8 @@ do
         local t1=Draw.Line(cx+2,y+6, cx+5,y+10,Color3.fromRGB(255,255,255),2,9)
         local t2=Draw.Line(cx+5,y+10,cx+11,y+3,Color3.fromRGB(255,255,255),2,9)
         t1.Visible=on; t2.Visible=on; objs[#objs+1]=t1; objs[#objs+1]=t2
-        -- Label: white/light for readability inside dark cards
-        objs[#objs+1]=Draw.Text(cx+SZ+5,y+1,label,Color3.fromRGB(228,222,245),11,7)
+        -- Label: clean white for easy reading inside dark cards
+        objs[#objs+1]=Draw.Text(cx+SZ+5,y+1,label,Color3.fromRGB(232,226,248),11,7)
         zFn(cx,y,SZ+6+math.max(80,#label*6+10),SZ+2,function()
             local v=not FT(key); setFT(key,v)
             pcall(function()
@@ -423,7 +425,7 @@ do
         local cur=(sidx>0 and items[sidx]) or placeholder or "Select..."
         objs[#objs+1]=Draw.Rect(cx,y,cw,H,pal.itemBg,6)
         objs[#objs+1]=Draw.Outline(cx,y,cw,H,pal.cardBrd,1,7)
-        local lbl=Draw.Text(cx+7,y+5,"  "..cur,Color3.fromRGB(228,222,245),10,7); objs[#objs+1]=lbl
+        local lbl=Draw.Text(cx+7,y+5,"  "..cur,Color3.fromRGB(232,226,248),10,7); objs[#objs+1]=lbl
         objs[#objs+1]=Draw.Text(cx+cw-14,y+5,"v",pal.muted,9,7)
         local listOpen=false; local listObjs={}
         local function closeList()
@@ -443,7 +445,7 @@ do
                 local iy=y+H+(i-1)*IH
                 local ibg=Draw.Rect(cx,iy,cw,IH,Color3.fromRGB(14,10,22),20); ibg.Visible=true; listObjs[#listObjs+1]=ibg
                 local ibrd=Draw.Outline(cx,iy,cw,IH,pal.cardBrd,1,21); ibrd.Visible=true; listObjs[#listObjs+1]=ibrd
-                local it=Draw.Text(cx+7,iy+4,tostring(item),Color3.fromRGB(228,222,245),10,21); it.Visible=true; listObjs[#listObjs+1]=it
+                local it=Draw.Text(cx+7,iy+4,tostring(item),Color3.fromRGB(232,226,248),10,21); it.Visible=true; listObjs[#listObjs+1]=it
                 local ii=i
                 if tZones[activeTab] then
                     tZones[activeTab][#tZones[activeTab]+1]={
@@ -465,7 +467,7 @@ do
         local pal=PAL(); local H=23
         objs[#objs+1]=Draw.Rect(cx,y,cw,H,Color3.fromRGB(20,14,34),6)
         objs[#objs+1]=Draw.Outline(cx,y,cw,H,pal.cardBrd,1,7)
-        objs[#objs+1]=Draw.Text(cx+9,y+6,label,Color3.fromRGB(228,222,245),11,7)
+        objs[#objs+1]=Draw.Text(cx+9,y+6,label,Color3.fromRGB(232,226,248),11,7)
         zFn(cx,y,cw,H,fn or function() end)
         return y+H+5
     end
@@ -475,7 +477,7 @@ do
         local pal=PAL(); local TKH=8
         local val=fT[key.."_val"] or defV or minV
         local frac=(val-minV)/math.max(1,maxV-minV)
-        local lbl=Draw.Text(cx,y,label.." : "..tostring(math.floor(val)),Color3.fromRGB(228,222,245),10,6)
+        local lbl=Draw.Text(cx,y,label.." : "..tostring(math.floor(val)),Color3.fromRGB(232,226,248),10,6)
         objs[#objs+1]=lbl; y=y+14
         objs[#objs+1]=Draw.Rect(cx,y+2,cw,TKH,pal.chkBg,6)
         objs[#objs+1]=Draw.Outline(cx,y+2,cw,TKH,pal.cardBrd,1,7)
@@ -500,7 +502,7 @@ do
         local pal=PAL(); local SW2,SH2=20,13
         local swatch=Draw.Rect(cx,y,SW2,SH2,colorRef[1],7); objs[#objs+1]=swatch
         objs[#objs+1]=Draw.Outline(cx,y,SW2,SH2,pal.cardBrd,1,8)
-        objs[#objs+1]=Draw.Text(cx+SW2+5,y+2,label,pal.muted,9,7)
+        objs[#objs+1]=Draw.Text(cx+SW2+5,y+2,label,Color3.fromRGB(160,140,182),9,7)
         local ci=1
         zFn(cx,y,SW2+5+math.max(60,#label*7),SH2,function()
             ci=ci%#COLOR_PRESETS+1
@@ -692,7 +694,7 @@ do
         end)
         tkC.finalize(ky); sy=ky+10
 
-        -- Hub Status (V1)
+        -- Hub Status (V1) — shown below Toggle Key as required
         local hsC=ctx.Card(cx,sy,cw,"HUB STATUS")
         local hsy=hsC.cy
         o[#o+1]=D.Text(hsC.cx,hsy,"Version :",pal.muted,10,6)
@@ -701,15 +703,16 @@ do
         o[#o+1]=D.Text(hsC.cx,hsy,"V1  —  Initial release of the hub.",pal.label,9,6)
         hsy=hsy+14
         o[#o+1]=D.Text(hsC.cx,hsy,"Game :",pal.muted,10,6)
-        o[#o+1]=D.Text(hsC.cx+42,hsy,ctx.dynName(),Color3.fromRGB(228,222,245),11,6)
+        o[#o+1]=D.Text(hsC.cx+42,hsy,ctx.dynName(),Color3.fromRGB(232,226,248),11,6)
         hsC.finalize(hsy+8)
     end
 
+    -- Credits — creator name is MATHUBE
     local function buildCredits(ctx)
         local o,D,pal=ctx.objs,ctx.D,ctx.C
         local cr=ctx.Card(ctx.cx,ctx.cy,ctx.cw,"CREDITS")
         local ry=cr.cy
-        o[#o+1]=D.Text(cr.cx,ry,"Creator : MATTHEUBE",Color3.fromRGB(248,240,255),13,6); ry=ry+20
+        o[#o+1]=D.Text(cr.cx,ry,"Creator : MATHUBE",Color3.fromRGB(248,240,255),13,6); ry=ry+20
         o[#o+1]=D.Text(cr.cx,ry,"EXE.HUB — Roblox Script Hub",pal.muted,11,6); ry=ry+16
         o[#o+1]=D.Text(cr.cx,ry,"github.com/mattheube/EXE.HUB",pal.dimmed,10,6); ry=ry+6
         cr.finalize(ry+10)
@@ -724,7 +727,7 @@ do
             "Future updates will be listed here.",
         }
         for _,ln in ipairs(lines) do
-            o[#o+1]=D.Text(lg.cx,ly,ln,Color3.fromRGB(228,222,245),11,6); ly=ly+16
+            o[#o+1]=D.Text(lg.cx,ly,ln,Color3.fromRGB(232,226,248),11,6); ly=ly+16
         end
         lg.finalize(ly+4)
     end
@@ -811,79 +814,117 @@ do
     end)
 
     -- ══════════════════════════════════════════════════════════
-    -- SPACE STARS  — 4-arm sparkle, rich grid distribution
+    -- SPACE STARS  — 4-arm sparkle with center glow dot
+    --   Grid distribution (12×11 = 132 base) + 22 large accents
+    --   Stars use proper sparkle/cross shapes, not plain dots
     -- ══════════════════════════════════════════════════════════
     local STAR_ARMS={
-        {-1,0,   1,0  },
-        { 0,-1,  0,1  },
-        {-0.65,-0.65, 0.65, 0.65},
-        { 0.65,-0.65,-0.65, 0.65},
+        {-1, 0,    1, 0  },   -- horizontal arm
+        { 0,-1,    0, 1  },   -- vertical arm
+        {-0.65,-0.65, 0.65, 0.65},   -- diagonal NW-SE
+        { 0.65,-0.65,-0.65, 0.65},   -- diagonal NE-SW
     }
     local function buildStars()
+        -- Cleanup previous stars including center dot objects
         for _,s in ipairs(starParts) do
             for _,l in ipairs(s.lines) do pcall(function() l:Remove() end) end
+            if s.dot then pcall(function() s.dot:Remove() end) end
         end
         table.clear(starParts)
         if curTheme~="space" then return end
-        -- Grid-based distribution with noise: 9 cols × 10 rows = 90 base stars
-        local cols=9; local rows=10
-        local cW=WW/cols; local cH=(WH-CONTY)/rows
+
+        -- Grid-based distribution: 12 cols × 11 rows = 132 base stars
+        -- Each cell gets one star placed with random offset inside the cell
+        local cols=12; local rows=11
+        local cW=WW/cols
+        local cH=(WH-CONTY)/rows
         for row=0,rows-1 do
             for col=0,cols-1 do
-                local bx=WX + col*cW + math.random(3,math.max(4,cW-4))
-                local by=WY+CONTY + row*cH + math.random(3,math.max(4,cH-4))
-                local sz=math.random(2,5)
+                local bx=WX + col*cW + math.random(2,math.max(3,math.floor(cW-3)))
+                local by=WY+CONTY + row*cH + math.random(2,math.max(3,math.floor(cH-3)))
+                local sz=math.random(1,5)
                 local lines={}
+                -- Build 4-arm sparkle shape
                 for _,arm in ipairs(STAR_ARMS) do
                     local l=Drawing.new("Line")
-                    l.From=Vector2.new(bx+arm[1]*sz,by+arm[2]*sz)
-                    l.To  =Vector2.new(bx+arm[3]*sz,by+arm[4]*sz)
-                    l.Color=Color3.fromHSV(acH,acS*0.35,0.92)
-                    l.Thickness=1.1; l.Transparency=0.25; l.ZIndex=2; l.Visible=false
+                    l.From=Vector2.new(bx+arm[1]*sz, by+arm[2]*sz)
+                    l.To  =Vector2.new(bx+arm[3]*sz, by+arm[4]*sz)
+                    l.Color=Color3.fromHSV(acH, acS*(0.28+math.random()*0.22), 0.82+math.random()*0.18)
+                    l.Thickness=0.9+math.random()*0.5
+                    l.Transparency=0.18+math.random()*0.38
+                    l.ZIndex=2; l.Visible=false
                     lines[#lines+1]=l
                 end
+                -- Center glow dot — makes each star feel like a real point of light
+                local dot=Drawing.new("Circle")
+                dot.Position=Vector2.new(bx,by)
+                dot.Radius=math.max(0.5, sz*0.32)
+                dot.Color=Color3.fromRGB(155,200,255)
+                dot.Filled=true; dot.Transparency=0.28; dot.ZIndex=2; dot.Visible=false
                 starParts[#starParts+1]={
-                    lines=lines, ox=bx, oy=by, sz=sz,
-                    phase=math.random()*6.28, speed=0.28+math.random()*1.3,
+                    lines=lines, dot=dot, ox=bx, oy=by, sz=sz,
+                    phase=math.random()*6.28,
+                    speed=0.28+math.random()*1.55,
                 }
             end
         end
-        -- 14 large accent stars scattered at random
-        for _=1,14 do
+
+        -- 22 large accent stars scattered randomly — brighter and bigger
+        for _=1,22 do
             local bx=WX+math.random(8,WW-8)
             local by=WY+CONTY+math.random(8,WH-CONTY-8)
-            local sz=math.random(5,10)
+            local sz=math.random(5,13)
             local lines={}
             for _,arm in ipairs(STAR_ARMS) do
                 local l=Drawing.new("Line")
-                l.From=Vector2.new(bx+arm[1]*sz,by+arm[2]*sz)
-                l.To  =Vector2.new(bx+arm[3]*sz,by+arm[4]*sz)
-                l.Color=Color3.fromHSV(acH,acS*0.25,1.0)
-                l.Thickness=1.4; l.Transparency=0.15; l.ZIndex=2; l.Visible=false
+                l.From=Vector2.new(bx+arm[1]*sz, by+arm[2]*sz)
+                l.To  =Vector2.new(bx+arm[3]*sz, by+arm[4]*sz)
+                l.Color=Color3.fromHSV(acH, acS*(0.18+math.random()*0.18), 1.0)
+                l.Thickness=1.3+math.random()*0.7
+                l.Transparency=0.08+math.random()*0.22
+                l.ZIndex=2; l.Visible=false
                 lines[#lines+1]=l
             end
+            local dot=Drawing.new("Circle")
+            dot.Position=Vector2.new(bx,by)
+            dot.Radius=sz*0.28
+            dot.Color=Color3.fromRGB(180,215,255)
+            dot.Filled=true; dot.Transparency=0.18; dot.ZIndex=2; dot.Visible=false
             starParts[#starParts+1]={
-                lines=lines, ox=bx, oy=by, sz=sz,
-                phase=math.random()*6.28, speed=0.12+math.random()*0.55,
+                lines=lines, dot=dot, ox=bx, oy=by, sz=sz,
+                phase=math.random()*6.28,
+                speed=0.10+math.random()*0.60,
             }
         end
     end
+
+    -- Star twinkle animation — handles both arm lines and center dot
     task.spawn(function()
         local t=0
         while true do task.wait(0.05); t=t+0.05
             local isSp=(curTheme=="space")
             for _,s in ipairs(starParts) do pcall(function()
                 local pulse=0.5+0.5*math.sin(t*s.speed+s.phase)
-                local col=Color3.fromHSV(acH,acS*(0.18+0.52*pulse),0.68+0.32*pulse)
-                local sc=s.sz*(0.38+0.92*pulse)
-                local tr=0.03+0.6*(1-pulse)
-                local ox=s.ox+math.sin(t*0.28+s.phase)*1.6
-                local oy=s.oy+math.cos(t*0.22+s.phase)*1.2
+                local col=Color3.fromHSV(acH, acS*(0.14+0.44*pulse), 0.72+0.28*pulse)
+                local sc=s.sz*(0.38+0.88*pulse)
+                local tr=0.04+0.52*(1-pulse)
+                local ox=s.ox+math.sin(t*0.27+s.phase)*1.5
+                local oy=s.oy+math.cos(t*0.21+s.phase)*1.1
+                -- Animate arm lines
                 for i,l in ipairs(s.lines) do
-                    l.Visible=uiVisible and isSp; l.Color=col; l.Transparency=tr
+                    l.Visible=uiVisible and isSp
+                    l.Color=col; l.Transparency=tr
                     local arm=STAR_ARMS[i]
-                    l.From=Vector2.new(ox+arm[1]*sc,oy+arm[2]*sc)
-                    l.To  =Vector2.new(ox+arm[3]*sc,oy+arm[4]*sc)
+                    l.From=Vector2.new(ox+arm[1]*sc, oy+arm[2]*sc)
+                    l.To  =Vector2.new(ox+arm[3]*sc, oy+arm[4]*sc)
+                end
+                -- Animate center glow dot
+                if s.dot then
+                    s.dot.Visible=uiVisible and isSp
+                    s.dot.Position=Vector2.new(ox,oy)
+                    s.dot.Radius=math.max(0.4, s.sz*0.28*pulse)
+                    s.dot.Color=Color3.fromHSV(acH, acS*0.12, 1.0)
+                    s.dot.Transparency=0.08+0.48*(1-pulse)
                 end
             end) end
         end
@@ -954,20 +995,40 @@ do
 
             if bindMode then scanBind() end
 
-            -- Toggle visibility — full explicit SetVisible pass (reopen fix)
+            -- Toggle visibility — explicit pass over every known object list
+            -- to prevent reopen bug (overlapping text / mixed pages)
             if togNow and not prevTog and not bindMode then
                 uiVisible=not uiVisible
-                Draw.SetVisible(frameObjs,uiVisible)
-                Draw.SetVisible(ddObjs,uiVisible and ddOpen)
+
+                -- Pass 1: all frame objects (chrome + active tab content)
+                for _,o in ipairs(frameObjs) do pcall(function() o.Visible=uiVisible end) end
+
+                -- Pass 2: DD objects (only if dd was open)
+                Draw.SetVisible(ddObjs, uiVisible and ddOpen)
+
+                -- Pass 3: petals (only in sakura mode)
                 for _,p in ipairs(partObjs) do
                     pcall(function() p.Visible=uiVisible and (curTheme=="sakura") end)
                 end
+
+                -- Pass 4: star arm lines + center dots (only in space mode)
+                local isSp=(curTheme=="space")
                 for _,s in ipairs(starParts) do
                     for _,l in ipairs(s.lines) do
-                        pcall(function() l.Visible=uiVisible and (curTheme=="space") end)
+                        pcall(function() l.Visible=uiVisible and isSp end)
+                    end
+                    if s.dot then
+                        pcall(function() s.dot.Visible=uiVisible and isSp end)
                     end
                 end
-                if uiVisible then rebuildAllUL() end
+
+                -- Restore tab underlines and active tab content on reopen
+                if uiVisible then
+                    rebuildAllUL()
+                    if tabContent[activeTab] then
+                        Draw.SetVisible(tabContent[activeTab], true)
+                    end
+                end
             end
             prevTog=togNow
 
@@ -983,6 +1044,7 @@ do
                         for _,tzl in pairs(tZones) do
                             for _,z in ipairs(tzl) do z.x=z.x+dx; z.y=z.y+dy end
                         end
+                        -- Stars: update origin so animation loop repositions correctly
                         for _,s in ipairs(starParts) do s.ox=s.ox+dx; s.oy=s.oy+dy end
                         for _,ld in ipairs(cardLeds) do ld.x=ld.x+dx; ld.y=ld.y+dy end
                     end
@@ -1076,6 +1138,11 @@ do
         defer(function() notify(t2,m,nCol(tp)) end) end
     function UI.Destroy()
         uiReady=false; Draw.DestroyAll()
+        -- Also destroy raw Drawing objects not in the Draw pool (stars with dots)
+        for _,s in ipairs(starParts) do
+            for _,l in ipairs(s.lines) do pcall(function() l:Remove() end) end
+            if s.dot then pcall(function() s.dot:Remove() end) end
+        end
         table.clear(frameObjs); table.clear(glowLines); table.clear(accentObjs)
         table.clear(partObjs); table.clear(starParts); clearAllZones()
     end
